@@ -1571,6 +1571,7 @@ config CPU_CAVIUM_OCTEON
 	select CPU_SUPPORTS_HUGEPAGES
 	select USB_EHCI_BIG_ENDIAN_MMIO
 	select MIPS_L1_CACHE_SHIFT_7
+	select SYS_HAS_DMA_OPS
 	help
 	  The Cavium Octeon processor is a highly integrated chip containing
 	  many ethernet hardware widgets for networking tasks. The processor
@@ -1865,6 +1866,9 @@ config MIPS_MALTA_PM
 	depends on PCI
 	bool
 	default y
+
+config SYS_HAS_DMA_OPS
+	bool
 
 #
 # CPU may reorder R->R, R->W, W->R, W->W
