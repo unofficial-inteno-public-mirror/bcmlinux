@@ -278,6 +278,10 @@
 
 #include <asm/uaccess.h>
 #include <asm/ioctls.h>
+#if ((defined(CONFIG_BCM_KF_RECVFILE) && defined(CONFIG_BCM_RECVFILE)) \
+     && (defined(CONFIG_BCM_KF_M2M_DMA) && defined(CONFIG_BCM_M2M_DMA)))
+#include <linux/bcm_m2mdma.h>
+#endif
 
 int sysctl_tcp_fin_timeout __read_mostly = TCP_FIN_TIMEOUT;
 
@@ -1418,6 +1422,9 @@ int tcp_recvmsg(struct kiocb *iocb, struct sock *sk, struct msghdr *msg,
 	int copied_early = 0;
 	struct sk_buff *skb;
 	u32 urg_hole = 0;
+#if defined(CONFIG_BCM_KF_RECVFILE) && defined(CONFIG_BCM_RECVFILE)
+	unsigned int dma_cookie=0;
+#endif
 
 	lock_sock(sk);
 
@@ -1464,8 +1471,28 @@ int tcp_recvmsg(struct kiocb *iocb, struct sock *sk, struct msghdr *msg,
 	do {
 		u32 offset;
 
+#if defined(CONFIG_BCM_KF_RECVFILE) && defined(CONFIG_BCM_RECVFILE)
+
+		if (flags & MSG_NOCATCHSIG) {
+			if (signal_pending(current)) {
+				if (sigismember(&current->pending.signal, SIGQUIT) || 
+				    sigismember(&current->pending.signal, SIGABRT) ||
+				    sigismember(&current->pending.signal, SIGKILL) ||
+				    sigismember(&current->pending.signal, SIGTERM) ||
+				    sigismember(&current->pending.signal, SIGSTOP)) {
+
+					if (copied)
+						break;
+					copied = timeo ? sock_intr_errno(timeo) : -EAGAIN;
+					break;
+				}
+			}
+		}
+		else if (tp->urg_data && tp->urg_seq == *seq) {
+#else
 		/* Are we at urgent data? Stop if we have read anything or have SIGURG pending. */
 		if (tp->urg_data && tp->urg_seq == *seq) {
+#endif
 			if (copied)
 				break;
 			if (signal_pending(current)) {
@@ -1693,8 +1720,14 @@ do_prequeue:
 			} else
 #endif
 			{
-				err = skb_copy_datagram_iovec(skb, offset,
-						msg->msg_iov, used);
+#if defined(CONFIG_BCM_KF_RECVFILE) && defined(CONFIG_BCM_RECVFILE)
+				if(msg->msg_flags & MSG_KERNSPACE)
+					err = skb_copy_datagram_to_kernel_iovec(skb,
+							offset, msg->msg_iov, used, &dma_cookie);
+				else
+#endif
+					err = skb_copy_datagram_iovec(skb, offset,
+							msg->msg_iov, used);
 				if (err) {
 					/* Exception. Bailout! */
 					if (!copied)
@@ -1773,6 +1806,11 @@ skip_copy:
 	tcp_cleanup_rbuf(sk, copied);
 
 	release_sock(sk);
+
+#if ((defined(CONFIG_BCM_KF_RECVFILE) && defined(CONFIG_BCM_RECVFILE)) \
+     && (defined(CONFIG_BCM_KF_M2M_DMA) && defined(CONFIG_BCM_M2M_DMA)))
+	bcm_m2m_wait_for_complete(dma_cookie);
+#endif
 	return copied;
 
 out:

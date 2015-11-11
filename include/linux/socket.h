@@ -195,7 +195,14 @@ struct ucred {
 #define AF_CAIF		37	/* CAIF sockets			*/
 #define AF_ALG		38	/* Algorithm sockets		*/
 #define AF_NFC		39	/* NFC sockets			*/
+#ifdef CONFIG_BCM_KF_MHI
+#define AF_VSOCK	40	/* vSockets			*/
+#define AF_MHI          41      /* MHI sockets                  */
+#define AF_RAW          42      /* RAW sockets                  */
+#define AF_MAX          43      /* For now.. */
+#else
 #define AF_MAX		40	/* For now.. */
+#endif
 
 /* Protocol families, same as address families. */
 #define PF_UNSPEC	AF_UNSPEC
@@ -238,6 +245,11 @@ struct ucred {
 #define PF_CAIF		AF_CAIF
 #define PF_ALG		AF_ALG
 #define PF_NFC		AF_NFC
+#ifdef CONFIG_BCM_KF_MHI
+#define PF_VSOCK	AF_VSOCK
+#define PF_RAW          AF_RAW
+#define PF_MHI          AF_MHI
+#endif
 #define PF_MAX		AF_MAX
 
 /* Maximum queue length specifiable by listen.  */
@@ -266,6 +278,10 @@ struct ucred {
 #define MSG_MORE	0x8000	/* Sender will send more */
 #define MSG_WAITFORONE	0x10000	/* recvmmsg(): block until 1+ packets avail */
 #define MSG_SENDPAGE_NOTLAST 0x20000 /* sendpage() internal : not the last page */
+#if defined(CONFIG_BCM_KF_RECVFILE) && defined(CONFIG_BCM_RECVFILE)
+#define MSG_KERNSPACE	0x40000
+#define MSG_NOCATCHSIG	0x80000
+#endif
 #define MSG_EOF         MSG_FIN
 
 #define MSG_CMSG_CLOEXEC 0x40000000	/* Set close_on_exit for file
@@ -330,6 +346,10 @@ extern int verify_iovec(struct msghdr *m, struct iovec *iov, struct sockaddr_sto
 extern int memcpy_toiovec(struct iovec *v, unsigned char *kdata, int len);
 extern int memcpy_toiovecend(const struct iovec *v, unsigned char *kdata,
 			     int offset, int len);
+#if defined(CONFIG_BCM_KF_RECVFILE) && defined(CONFIG_BCM_RECVFILE)
+extern void memcpy_tokerneliovec(struct iovec *iov, unsigned char *kdata, int len,
+						unsigned int *dma_cookie);
+#endif
 extern int move_addr_to_kernel(void __user *uaddr, int ulen, struct sockaddr_storage *kaddr);
 extern int put_cmsg(struct msghdr*, int level, int type, int len, void *data);
 

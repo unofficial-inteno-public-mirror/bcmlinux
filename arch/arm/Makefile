@@ -116,6 +116,24 @@ endif
 KBUILD_CFLAGS	+=$(CFLAGS_ABI) $(CFLAGS_THUMB2) $(arch-y) $(tune-y) $(call cc-option,-mshort-load-bytes,$(call cc-option,-malignment-traps,)) -msoft-float -Uarm
 KBUILD_AFLAGS	+=$(CFLAGS_ABI) $(AFLAGS_THUMB2) $(arch-y) $(tune-y) -include asm/unified.h -msoft-float
 
+ifdef BCM_KF # defined(CONFIG_BCM_KF_MISC_MAKEFILE)
+# Copy from bigisland's Makefile, but most likely it does apply to BCM63138
+# ifeq ($(CONFIG_VFP),y)
+# ifeq ($(CONFIG_VFPv3),y)
+# # v3 vfp
+# KBUILD_CFLAGS	+=-mfpu=vfp3 -mfloat-abi=softfp
+# KBUILD_AFLAGS	+=-mfpu=vfp3 -mfloat-abi=softfp 
+# else
+# #non-v3 vfp
+# KBUILD_CFLAGS	+=-mfloat-abi=softfp
+# KBUILD_AFLAGS	+=-mfloat-abi=softfp
+# endif
+# else
+# #no vfp
+# KBUILD_CFLAGS	+=-mfloat-abi=soft
+# KBUILD_AFLAGS	+=-mfloat-abi=soft
+# endif
+endif # BCM_KF # CONFIG_BCM_KF_MISC_MAKEFILE
 CHECKFLAGS	+= -D__arm__
 
 #Default value
@@ -136,6 +154,9 @@ textofs-$(CONFIG_ARCH_MSM8960) := 0x00208000
 # by CONFIG_* macro name.
 machine-$(CONFIG_ARCH_AT91)		:= at91
 machine-$(CONFIG_ARCH_BCMRING)		:= bcmring
+ifdef BCM_KF # defined(CONFIG_BCM_KF_MISC_MAKEFILE)
+machine-$(CONFIG_ARCH_BCM63XX)		:= bcm963xx
+endif # BCM_KF
 machine-$(CONFIG_ARCH_CLPS711X)		:= clps711x
 machine-$(CONFIG_ARCH_CNS3XXX)		:= cns3xxx
 machine-$(CONFIG_ARCH_DAVINCI)		:= davinci
@@ -200,6 +221,9 @@ machine-$(CONFIG_ARCH_ZYNQ)		:= zynq
 
 # Platform directory name.  This list is sorted alphanumerically
 # by CONFIG_* macro name.
+ifdef BCM_KF # defined(CONFIG_BCM_KF_MISC_MAKEFILE)
+plat-$(CONFIG_ARCH_BCM63XX)	:= bcm63xx
+endif # BCM_KF
 plat-$(CONFIG_ARCH_MXC)		:= mxc
 plat-$(CONFIG_ARCH_OMAP)	:= omap
 plat-$(CONFIG_ARCH_S3C64XX)	:= samsung
@@ -261,11 +285,30 @@ drivers-$(CONFIG_OPROFILE)      += arch/arm/oprofile/
 libs-y				:= arch/arm/lib/ $(libs-y)
 
 # Default target when executing plain make
+
+ifdef BCM_KF # defined(CONFIG_BCM_KF_ANDROID)
+ifneq ($(strip $(CONFIG_BCM_ANDROID)),)
+ifeq ($(CONFIG_XIP_KERNEL),y)
+KBUILD_IMAGE := xipImage
+else ifeq ($(CONFIG_BUILD_ARM_APPENDED_DTB_IMAGE),y)
+KBUILD_IMAGE := zImage-dtb
+else
+KBUILD_IMAGE := zImage
+endif
+else # BCM_ANDROID
 ifeq ($(CONFIG_XIP_KERNEL),y)
 KBUILD_IMAGE := xipImage
 else
 KBUILD_IMAGE := zImage
 endif
+endif # BCM_ANDROID
+else # BCM_KF # defined(CONFIG_BCM_KF_ANDROID)
+ifeq ($(CONFIG_XIP_KERNEL),y)
+KBUILD_IMAGE := xipImage
+else
+KBUILD_IMAGE := zImage
+endif
+endif # BCM_KF # defined(CONFIG_BCM_KF_ANDROID)
 
 all:	$(KBUILD_IMAGE)
 
@@ -283,10 +326,29 @@ zImage Image xipImage bootpImage uImage: vmlinux
 zinstall uinstall install: vmlinux
 	$(Q)$(MAKE) $(build)=$(boot) MACHINE=$(MACHINE) $@
 
+ifdef BCM_KF # defined(CONFIG_BCM_KF_ANDROID)
+ifneq ($(strip $(CONFIG_BCM_ANDROID)),)
+%.dtb: scripts
+else
 %.dtb:
+endif
+else # BCM_KF # defined(CONFIG_BCM_KF_ANDROID)
+%.dtb:
+endif # BCM_KF # defined(CONFIG_BCM_KF_ANDROID)
 	$(Q)$(MAKE) $(build)=$(boot) MACHINE=$(MACHINE) $(boot)/$@
 
+ifdef BCM_KF # defined(CONFIG_BCM_KF_ANDROID)
+ifneq ($(strip $(CONFIG_BCM_ANDROID)),)
+dtbs: scripts
+	$(Q)$(MAKE) $(build)=$(boot) MACHINE=$(MACHINE) $(boot)/$@
+
+zImage-dtb: vmlinux scripts
+else
 dtbs:
+endif
+else # BCM_KF # defined(CONFIG_BCM_KF_ANDROID)
+dtbs:
+endif # BCM_KF # defined(CONFIG_BCM_KF_ANDROID)
 	$(Q)$(MAKE) $(build)=$(boot) MACHINE=$(MACHINE) $(boot)/$@
 
 # We use MRPROPER_FILES and CLEAN_FILES now

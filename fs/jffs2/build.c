@@ -114,6 +114,16 @@ static int jffs2_build_filesystem(struct jffs2_sb_info *c)
 	dbg_fsbuild("scanned flash completely\n");
 	jffs2_dbg_dump_block_lists_nolock(c);
 
+	if (c->flags & (1 << 7)) {
+                printk("%s(): unlocking the mtd device... ", __func__); 
+                mtd_unlock(c->mtd, 0, c->mtd->size); 
+                printk("done.\n"); 
+ 
+                printk("%s(): erasing all blocks after the end marker... ", __func__); 
+                jffs2_erase_pending_blocks(c, -1); 
+                printk("done.\n"); 
+	}
+
 	dbg_fsbuild("pass 1 starting\n");
 	c->flags |= JFFS2_SB_FLAG_BUILDING;
 	/* Now scan the directory tree, increasing nlink according to every dirent found. */
@@ -309,8 +319,8 @@ static void jffs2_calc_trigger_levels(struct jffs2_sb_info *c)
 	   trying to GC to make more space. It'll be a fruitless task */
 	c->nospc_dirty_size = c->sector_size + (c->flash_size / 100);
 
-	dbg_fsbuild("trigger levels (size %d KiB, block size %d KiB, %d blocks)\n",
-		    c->flash_size / 1024, c->sector_size / 1024, c->nr_blocks);
+	dbg_fsbuild("JFFS2 trigger levels (size %d KiB, block size %d KiB, %d blocks)\n",
+		  c->flash_size / 1024, c->sector_size / 1024, c->nr_blocks);
 	dbg_fsbuild("Blocks required to allow deletion:    %d (%d KiB)\n",
 		  c->resv_blocks_deletion, c->resv_blocks_deletion*c->sector_size/1024);
 	dbg_fsbuild("Blocks required to allow writes:      %d (%d KiB)\n",

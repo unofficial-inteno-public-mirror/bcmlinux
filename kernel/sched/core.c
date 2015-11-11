@@ -87,6 +87,17 @@
 #define CREATE_TRACE_POINTS
 #include <trace/events/sched.h>
 
+#if defined(CONFIG_BCM_KF_BUZZZ) && defined(CONFIG_BUZZZ_KEVT)
+#include <asm/buzzz.h>
+/* These global varaibles are needed to hold prev, next tasks to log context
+ * switch as stack will be invalid after context_switch.
+ * Also per-cpu macros are not needed as these variables are accessed
+ * only inside pre-emption disabled code.
+ */
+struct task_struct *buzzz_prev[NR_CPUS];
+struct task_struct *buzzz_next[NR_CPUS];
+#endif  /*  CONFIG_BUZZZ_KEVT */
+
 void start_bandwidth_timer(struct hrtimer *period_timer, ktime_t period)
 {
 	unsigned long delta;
@@ -281,7 +292,13 @@ const_debug unsigned int sysctl_sched_time_avg = MSEC_PER_SEC;
  * period over which we measure -rt task cpu usage in us.
  * default: 1s
  */
+#if defined(CONFIG_BCM_KF_SCHED_RT) && defined(CONFIG_BCM_SCHED_RT_PERIOD)
+unsigned int sysctl_sched_rt_period = CONFIG_BCM_SCHED_RT_PERIOD;
+#else
 unsigned int sysctl_sched_rt_period = 1000000;
+#endif
+
+
 
 __read_mostly int scheduler_running;
 
@@ -289,8 +306,12 @@ __read_mostly int scheduler_running;
  * part of the period that we allow rt tasks to run in us.
  * default: 0.95s
  */
+#if defined(CONFIG_BCM_KF_SCHED_RT) && defined(CONFIG_BCM_SCHED_RT_RUNTIME)
+/* RT task takes 100% of time */
+int sysctl_sched_rt_runtime = CONFIG_BCM_SCHED_RT_RUNTIME;
+#else
 int sysctl_sched_rt_runtime = 950000;
-
+#endif
 
 
 /*
@@ -389,6 +410,10 @@ static enum hrtimer_restart hrtick(struct hrtimer *timer)
 	struct rq *rq = container_of(timer, struct rq, hrtick_timer);
 
 	WARN_ON_ONCE(cpu_of(rq) != smp_processor_id());
+
+#if defined(CONFIG_BCM_KF_BUZZZ) && defined(CONFIG_BUZZZ_KEVT) && (BUZZZ_KEVT_LVL >= 3)
+	buzzz_kevt_log0(BUZZZ_KEVT_ID_SCHED_HRTICK);
+#endif  /*  CONFIG_BUZZZ_KEVT && BUZZZ_KEVT_LVL >= 3 */
 
 	raw_spin_lock(&rq->lock);
 	update_rq_clock(rq);
@@ -3169,6 +3194,10 @@ void scheduler_tick(void)
 	struct rq *rq = cpu_rq(cpu);
 	struct task_struct *curr = rq->curr;
 
+#if defined(CONFIG_BCM_KF_BUZZZ) && defined(CONFIG_BUZZZ_KEVT) && (BUZZZ_KEVT_LVL >= 1)
+	buzzz_kevt_log1(BUZZZ_KEVT_ID_SCHED_TICK, jiffies);
+#endif  /*  CONFIG_BUZZZ_KEVT && BUZZZ_KEVT_LVL >= 1 */
+
 	sched_clock_tick();
 
 	raw_spin_lock(&rq->lock);
@@ -3281,6 +3310,123 @@ static inline void schedule_debug(struct task_struct *prev)
 	schedstat_inc(this_rq(), sched_count);
 }
 
+#if defined(CONFIG_BCM_KF_CPU_DOWN_PREEMPT_ON) && !defined(CONFIG_PREEMPT_RT_FULL) && defined(CONFIG_SMP)
+#define MIGRATE_DISABLE_SET_AFFIN	(1<<30) /* Can't make a negative */
+#define migrate_disabled_updated(p)	((p)->migrate_disable & MIGRATE_DISABLE_SET_AFFIN)
+#define migrate_disable_count(p)	((p)->migrate_disable & ~MIGRATE_DISABLE_SET_AFFIN)
+
+static inline void update_migrate_disable(struct task_struct *p)
+{
+	const struct cpumask *mask;
+
+	if (likely(!p->migrate_disable))
+		return;
+
+	/* Did we already update affinity? */
+	if (unlikely(migrate_disabled_updated(p)))
+		return;
+
+	/*
+	 * Since this is always current we can get away with only locking
+	 * rq->lock, the ->cpus_allowed value can normally only be changed
+	 * while holding both p->pi_lock and rq->lock, but seeing that this
+	 * is current, we cannot actually be waking up, so all code that
+	 * relies on serialization against p->pi_lock is out of scope.
+	 *
+	 * Having rq->lock serializes us against things like
+	 * set_cpus_allowed_ptr() that can still happen concurrently.
+	 */
+	mask = tsk_cpus_allowed(p);
+
+	if (p->sched_class->set_cpus_allowed)
+		p->sched_class->set_cpus_allowed(p, mask);
+	p->rt.nr_cpus_allowed = cpumask_weight(mask);
+
+	/* Let migrate_enable know to fix things back up */
+	p->migrate_disable |= MIGRATE_DISABLE_SET_AFFIN;
+}
+
+void migrate_disable_preempt_on(void)
+{
+	struct task_struct *p = current;
+
+	if (in_atomic()) {
+#ifdef CONFIG_SCHED_DEBUG
+		p->migrate_disable_atomic++;
+#endif
+		return;
+	}
+
+#ifdef CONFIG_SCHED_DEBUG
+	WARN_ON_ONCE(p->migrate_disable_atomic);
+#endif
+
+	preempt_disable();
+	if (p->migrate_disable) {
+		p->migrate_disable++;
+		preempt_enable();
+		return;
+	}
+
+	pin_current_cpu();
+	p->migrate_disable = 1;
+	preempt_enable();
+}
+EXPORT_SYMBOL(migrate_disable_preempt_on);
+
+void migrate_enable_preempt_on(void)
+{
+	struct task_struct *p = current;
+	const struct cpumask *mask;
+	unsigned long flags;
+	struct rq *rq;
+
+	if (in_atomic()) {
+#ifdef CONFIG_SCHED_DEBUG
+		p->migrate_disable_atomic--;
+#endif
+		return;
+	}
+
+#ifdef CONFIG_SCHED_DEBUG
+	WARN_ON_ONCE(p->migrate_disable_atomic);
+#endif
+	WARN_ON_ONCE(p->migrate_disable <= 0);
+
+	preempt_disable();
+	if (migrate_disable_count(p) > 1) {
+		p->migrate_disable--;
+		preempt_enable();
+		return;
+	}
+
+	if (unlikely(migrate_disabled_updated(p))) {
+		/*
+		 * Undo whatever update_migrate_disable() did, also see there
+		 * about locking.
+		 */
+		rq = this_rq();
+		raw_spin_lock_irqsave(&rq->lock, flags);
+
+		/*
+		 * Clearing migrate_disable causes tsk_cpus_allowed to
+		 * show the tasks original cpu affinity.
+		 */
+		p->migrate_disable = 0;
+		mask = tsk_cpus_allowed(p);
+		if (p->sched_class->set_cpus_allowed)
+			p->sched_class->set_cpus_allowed(p, mask);
+		p->rt.nr_cpus_allowed = cpumask_weight(mask);
+		raw_spin_unlock_irqrestore(&rq->lock, flags);
+	} else
+		p->migrate_disable = 0;
+
+	unpin_current_cpu();
+	preempt_enable();
+}
+EXPORT_SYMBOL(migrate_enable_preempt_on);
+
+#else
 #if defined(CONFIG_PREEMPT_RT_FULL) && defined(CONFIG_SMP)
 #define MIGRATE_DISABLE_SET_AFFIN	(1<<30) /* Can't make a negative */
 #define migrate_disabled_updated(p)	((p)->migrate_disable & MIGRATE_DISABLE_SET_AFFIN)
@@ -3400,6 +3546,7 @@ EXPORT_SYMBOL(migrate_enable);
 static inline void update_migrate_disable(struct task_struct *p) { }
 #define migrate_disabled_updated(p)		0
 #endif
+#endif /* defined(CONFIG_BCM_KF_CPU_DOWN_PREEMPT_ON) && !defined(CONFIG_PREEMPT_RT_FULL) */
 
 static void put_prev_task(struct rq *rq, struct task_struct *prev)
 {
@@ -3488,6 +3635,11 @@ need_resched:
 		rq->curr = next;
 		++*switch_count;
 
+#if defined(CONFIG_BCM_KF_BUZZZ) && defined(CONFIG_BUZZZ_KEVT) && (BUZZZ_KEVT_LVL >= 1)
+		buzzz_prev[cpu] = prev;
+		buzzz_next[cpu] = next;
+#endif  /*  CONFIG_BUZZZ_KEVT && BUZZZ_KEVT_LVL >= 1 */
+
 		context_switch(rq, prev, next); /* unlocks the rq */
 		/*
 		 * The context switch have flipped the stack from under us
@@ -3497,6 +3649,10 @@ need_resched:
 		 */
 		cpu = smp_processor_id();
 		rq = cpu_rq(cpu);
+#if defined(CONFIG_BCM_KF_BUZZZ) && defined(CONFIG_BUZZZ_KEVT) && (BUZZZ_KEVT_LVL >= 1)
+		buzzz_kevt_log2(BUZZZ_KEVT_ID_SCHEDULE,
+			(uint32_t)buzzz_prev[cpu], (uint32_t)buzzz_next[cpu]);
+#endif  /*  CONFIG_BUZZZ_KEVT && BUZZZ_KEVT_LVL >= 1 */
 	} else
 		raw_spin_unlock_irq(&rq->lock);
 

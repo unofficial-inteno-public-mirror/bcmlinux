@@ -935,6 +935,14 @@ config CRYPTO_ZLIB
 	help
 	  This is the zlib algorithm.
 
+config CRYPTO_LZMA
+	tristate "LZMA compression algorithm"
+	select CRYPTO_ALGAPI
+	select LZMA_COMPRESS
+	select LZMA_DECOMPRESS
+	help
+	  This is the LZMA algorithm.
+
 config CRYPTO_LZO
 	tristate "LZO compression algorithm"
 	select CRYPTO_ALGAPI

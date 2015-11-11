@@ -22,10 +22,18 @@
 @  IRQs disabled.
 @
 ENTRY(do_vfp)
+#if !defined(CONFIG_BCM_KF_ANDROID) || !defined(CONFIG_BCM_ANDROID)
 #ifdef CONFIG_PREEMPT
 	ldr	r4, [r10, #TI_PREEMPT]	@ get preempt count
 	add	r11, r4, #1		@ increment it
 	str	r11, [r10, #TI_PREEMPT]
+#endif
+#else
+#ifdef CONFIG_PREEMPT_COUNT
+	ldr	r4, [r10, #TI_PREEMPT]	@ get preempt count
+	add	r11, r4, #1		@ increment it
+	str	r11, [r10, #TI_PREEMPT]
+#endif
 #endif
 	enable_irq
  	ldr	r4, .LCvfp
@@ -35,11 +43,20 @@ ENTRY(do_vfp)
 ENDPROC(do_vfp)
 
 ENTRY(vfp_null_entry)
+#if !defined(CONFIG_BCM_KF_ANDROID) || !defined(CONFIG_BCM_ANDROID)
 #ifdef CONFIG_PREEMPT
 	get_thread_info	r10
 	ldr	r4, [r10, #TI_PREEMPT]	@ get preempt count
 	sub	r11, r4, #1		@ decrement it
 	str	r11, [r10, #TI_PREEMPT]
+#endif
+#else
+#ifdef CONFIG_PREEMPT_COUNT
+	get_thread_info	r10
+	ldr	r4, [r10, #TI_PREEMPT]	@ get preempt count
+	sub	r11, r4, #1		@ decrement it
+	str	r11, [r10, #TI_PREEMPT]
+#endif
 #endif
 	mov	pc, lr
 ENDPROC(vfp_null_entry)
@@ -53,11 +70,20 @@ ENDPROC(vfp_null_entry)
 
 	__INIT
 ENTRY(vfp_testing_entry)
+#if !defined(CONFIG_BCM_KF_ANDROID) || !defined(CONFIG_BCM_ANDROID)
 #ifdef CONFIG_PREEMPT
 	get_thread_info	r10
 	ldr	r4, [r10, #TI_PREEMPT]	@ get preempt count
 	sub	r11, r4, #1		@ decrement it
 	str	r11, [r10, #TI_PREEMPT]
+#endif
+#else
+#ifdef CONFIG_PREEMPT_COUNT
+	get_thread_info	r10
+	ldr	r4, [r10, #TI_PREEMPT]	@ get preempt count
+	sub	r11, r4, #1		@ decrement it
+	str	r11, [r10, #TI_PREEMPT]
+#endif
 #endif
 	ldr	r0, VFP_arch_address
 	str	r5, [r0]		@ known non-zero value

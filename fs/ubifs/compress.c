@@ -71,6 +71,22 @@ static struct ubifs_compressor zlib_compr = {
 };
 #endif
 
+#ifdef CONFIG_UBIFS_FS_LZMA
+static DEFINE_MUTEX(lzma_mutex);
+
+static struct ubifs_compressor lzma_compr = {
+	.compr_type = UBIFS_COMPR_LZMA,
+	.comp_mutex = &lzma_mutex,
+	.name = "lzma",
+	.capi_name = "lzma",
+};
+#else
+static struct ubifs_compressor lzma_compr = {
+	.compr_type = UBIFS_COMPR_LZMA,
+	.name = "lzma",
+};
+#endif
+
 /* All UBIFS compressors */
 struct ubifs_compressor *ubifs_compressors[UBIFS_COMPR_TYPES_CNT];
 
@@ -233,9 +249,15 @@ int __init ubifs_compressors_init(void)
 	if (err)
 		goto out_lzo;
 
+	err = compr_init(&lzma_compr);
+	if (err)
+		goto out_zlib;
+
 	ubifs_compressors[UBIFS_COMPR_NONE] = &none_compr;
 	return 0;
 
+out_zlib:
+	compr_exit(&zlib_compr);
 out_lzo:
 	compr_exit(&lzo_compr);
 	return err;
@@ -248,4 +270,5 @@ void ubifs_compressors_exit(void)
 {
 	compr_exit(&lzo_compr);
 	compr_exit(&zlib_compr);
+	compr_exit(&lzma_compr);
 }

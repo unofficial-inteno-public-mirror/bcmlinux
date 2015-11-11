@@ -16,6 +16,10 @@
 #include "br_private.h"
 #include "br_private_stp.h"
 
+#if defined(CONFIG_BCM_KF_STP_LOOP)
+#include <linux/bcm_log.h>
+#endif
+
 /* since time values in bpdu are in jiffies and then scaled (1/256)
  * before sending, make sure that is at least one STP tick.
  */
@@ -29,11 +33,17 @@ static const char *const br_port_state_names[] = {
 	[BR_STATE_BLOCKING] = "blocking",
 };
 
+
+
 void br_log_state(const struct net_bridge_port *p)
 {
 	br_info(p->br, "port %u(%s) entered %s state\n",
 		(unsigned) p->port_no, p->dev->name,
 		br_port_state_names[p->state]);
+
+#if defined(CONFIG_BCM_KF_BRIDGE_STP)
+	br_stp_notify_state_port(p);
+#endif   
 }
 
 /* called under bridge lock */
@@ -367,6 +377,15 @@ static void br_make_blocking(struct net_bridge_port *p)
 		del_timer(&p->forward_delay_timer);
 	}
 }
+
+#if defined(CONFIG_BCM_KF_STP_LOOP)
+void br_loopback_detected(struct net_bridge_port *p) {
+    if  (p->port_no == p->br->root_port) {
+        BCM_LOG_ERROR(BCM_LOG_ID_LOG, "Loopback detected on root port %s -- making blocking\n", p->dev->name);
+        br_make_blocking(p);
+    }
+}
+#endif
 
 /* called under bridge lock */
 static void br_make_forwarding(struct net_bridge_port *p)

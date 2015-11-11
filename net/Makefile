@@ -42,6 +42,9 @@ obj-$(CONFIG_L2TP)		+= l2tp/
 obj-$(CONFIG_DECNET)		+= decnet/
 obj-$(CONFIG_ECONET)		+= econet/
 obj-$(CONFIG_PHONET)		+= phonet/
+ifdef BCM_KF # defined(CONFIG_BCM_KF_MHI)
+obj-$(CONFIG_MHI)		+= mhi/
+endif # BCM_KF
 ifneq ($(CONFIG_VLAN_8021Q),)
 obj-y				+= 8021q/
 endif
@@ -70,3 +73,8 @@ obj-$(CONFIG_CEPH_LIB)		+= ceph/
 obj-$(CONFIG_BATMAN_ADV)	+= batman-adv/
 obj-$(CONFIG_NFC)		+= nfc/
 obj-$(CONFIG_OPENVSWITCH)	+= openvswitch/
+ifdef BCM_KF # defined(CONFIG_BCM_KF_ANDROID)
+ifneq ($(strip $(CONFIG_BCM_ANDROID)),)
+obj-$(CONFIG_NET_ACTIVITY_STATS)		+= activity_stats.o
+endif
+endif # BCM_KF # defined(CONFIG_BCM_KF_ANDROID)

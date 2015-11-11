@@ -49,6 +49,7 @@ ENTRY(cpu_v7_switch_mm)
 #ifdef CONFIG_ARM_ERRATA_754322
 	dsb
 #endif
+#if !defined(CONFIG_BCM_KF_ANDROID) || !defined(CONFIG_BCM_ANDROID)
 	mcr	p15, 0, r2, c13, c0, 1		@ set reserved context ID
 	isb
 1:	mcr	p15, 0, r0, c2, c0, 0		@ set TTB 0
@@ -56,8 +57,13 @@ ENTRY(cpu_v7_switch_mm)
 #ifdef CONFIG_ARM_ERRATA_754322
 	dsb
 #endif
+#endif
 	mcr	p15, 0, r1, c13, c0, 1		@ set context ID
 	isb
+#if defined(CONFIG_BCM_KF_ANDROID) && defined(CONFIG_BCM_ANDROID)
+	mcr	p15, 0, r0, c2, c0, 0		@ set TTB 0
+	isb
+#endif
 #endif
 	mov	pc, lr
 ENDPROC(cpu_v7_switch_mm)

@@ -100,6 +100,11 @@ obj-$(CONFIG_CPU_IDLE)		+= cpuidle/
 obj-y				+= mmc/
 obj-$(CONFIG_MEMSTICK)		+= memstick/
 obj-y				+= leds/
+ifdef BCM_KF # defined(CONFIG_BCM_KF_ANDROID)
+ifneq ($(strip $(CONFIG_BCM_ANDROID)),)
+obj-$(CONFIG_SWITCH)		+= switch/
+endif
+endif # BCM_KF # defined(CONFIG_BCM_KF_ANDROID)
 obj-$(CONFIG_INFINIBAND)	+= infiniband/
 obj-$(CONFIG_SGI_SN)		+= sn/
 obj-y				+= firmware/

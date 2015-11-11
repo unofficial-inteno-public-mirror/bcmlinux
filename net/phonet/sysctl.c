@@ -27,6 +27,12 @@
 #include <linux/errno.h>
 #include <linux/init.h>
 
+#ifdef CONFIG_BCM_KF_PHONET
+#include <net/sock.h>
+#include <linux/phonet.h>
+#include <net/phonet/phonet.h>
+#endif
+
 #define DYNAMIC_PORT_MIN	0x40
 #define DYNAMIC_PORT_MAX	0x7f
 

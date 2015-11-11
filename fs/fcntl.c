@@ -143,6 +143,10 @@ SYSCALL_DEFINE1(dup, unsigned int, fildes)
 	return ret;
 }
 
+#if defined(CONFIG_BCM_KF_OCF)
+EXPORT_SYMBOL(sys_dup);
+#endif // CONFIG_BCM_KF_OCF
+
 #define SETFL_MASK (O_APPEND | O_NONBLOCK | O_NDELAY | O_DIRECT | O_NOATIME)
 
 static int setfl(int fd, struct file * filp, unsigned long arg)

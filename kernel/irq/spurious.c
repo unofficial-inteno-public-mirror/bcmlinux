@@ -16,6 +16,11 @@
 
 #include "internals.h"
 
+#if defined(CONFIG_BCM_KF_BUZZZ) && defined(CONFIG_BUZZZ_KEVT)
+#include <asm/buzzz.h>
+#endif  /*  CONFIG_BUZZZ */
+
+
 static int irqfixup __read_mostly;
 
 #define POLL_SPURIOUS_IRQ_INTERVAL (HZ/10)
@@ -64,6 +69,10 @@ static int try_one_irq(int irq, struct irq_desc *desc, bool force)
 {
 	irqreturn_t ret = IRQ_NONE;
 	struct irqaction *action;
+
+#if defined(CONFIG_BCM_KF_BUZZZ) && defined(CONFIG_BUZZZ_KEVT) && (BUZZZ_KEVT_LVL >= 1)
+	buzzz_kevt_log1(BUZZZ_KEVT_ID_IRQ_MISROUTED, irq);
+#endif  /*  CONFIG_BUZZZ_KEVT && BUZZZ_KEVT_LVL >= 1 */
 
 	raw_spin_lock(&desc->lock);
 

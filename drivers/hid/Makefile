@@ -8,6 +8,11 @@ ifdef CONFIG_DEBUG_FS
 endif
 
 obj-$(CONFIG_HID)		+= hid.o
+ifdef BCM_KF # defined(CONFIG_BCM_KF_ANDROID)
+ifneq ($(strip $(CONFIG_BCM_ANDROID)),)
+obj-$(CONFIG_UHID)		+= uhid.o
+endif
+endif # BCM_KF # defined(CONFIG_BCM_KF_ANDROID)
 
 hid-$(CONFIG_HIDRAW)		+= hidraw.o
 

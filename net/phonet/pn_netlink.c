@@ -70,8 +70,13 @@ static int addr_doit(struct sk_buff *skb, struct nlmsghdr *nlh, void *attr)
 	int err;
 	u8 pnaddr;
 
+#ifdef CONFIG_BCM_KF_PHONET
+	if (!capable(CAP_NET_ADMIN))
+		return -EPERM;
+#else
 	if (!capable(CAP_SYS_ADMIN))
 		return -EPERM;
+#endif
 
 	ASSERT_RTNL();
 
@@ -228,8 +233,13 @@ static int route_doit(struct sk_buff *skb, struct nlmsghdr *nlh, void *attr)
 	int err;
 	u8 dst;
 
+#ifdef CONFIG_BCM_KF_PHONET
+	if (!capable(CAP_NET_ADMIN))
+		return -EPERM;
+#else
 	if (!capable(CAP_SYS_ADMIN))
 		return -EPERM;
+#endif
 
 	ASSERT_RTNL();
 

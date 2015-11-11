@@ -29,6 +29,22 @@
 
 #define NETLINK_INET_DIAG	NETLINK_SOCK_DIAG
 
+#if defined(CONFIG_BCM_KF_NETFILTER)
+#define NETLINK_BRCM_MONITOR 25 /*send events to userspace monitor task(broadcom specific)*/
+#define NETLINK_BRCM_EPON       26
+#endif
+#if defined(CONFIG_BCM_KF_MLD) || defined(CONFIG_BCM_KF_IGMP)
+#define NETLINK_MCPD            30       /* for multicast */
+#endif
+
+#if defined(CONFIG_BCM_KF_WL)
+#define NETLINK_WLCSM            31       /*  for brcm wireless cfg[nvram]/statics/management extention */
+#endif
+
+#if defined(CONFIG_BCM_KF_DPI) && defined(CONFIG_BRCM_DPI)
+#define NETLINK_DPI            27       /* for dpictl */
+#endif
+
 #define MAX_LINKS 32		
 
 struct sockaddr_nl {

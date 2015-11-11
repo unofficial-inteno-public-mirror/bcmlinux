@@ -21,6 +21,83 @@
 
 #include <asm/uaccess.h>
 #include "br_private.h"
+#if defined(CONFIG_BCM_KF_WL) 
+#include "linux/bcm_skb_defines.h"
+#endif
+
+#if defined(CONFIG_BCM_KF_BLOG) && defined(CONFIG_BLOG)
+#include <linux/blog.h>
+#if defined(CONFIG_BCM_KF_WL)
+#if defined(PKTC)
+#include <linux_osl_dslcpe_pktc.h>
+extern uint32_t (*wl_pktc_req_hook)(int req_id, uint32_t param0, uint32_t param1, uint32_t param2);
+#endif /* PKTC */
+#endif
+#endif
+#if defined(CONFIG_BCM_KF_IGMP) && defined(CONFIG_BR_IGMP_SNOOP)
+#include "br_igmp.h"
+#endif
+#if defined(CONFIG_BCM_KF_MLD) && defined(CONFIG_BR_MLD_SNOOP)
+#include "br_mld.h"
+#endif
+
+#if defined(CONFIG_BCM_KF_BLOG) && defined(CONFIG_BLOG)
+static struct net_device_stats *br_dev_get_stats(struct net_device *dev)
+{
+	//struct net_bridge *br = netdev_priv(dev);
+	//return &br->statistics;
+	return &dev->stats;
+	
+}
+
+static BlogStats_t * br_dev_get_bstats(struct net_device *dev)
+{
+	struct net_bridge *br = netdev_priv(dev);
+
+	return &br->bstats;
+}
+
+static struct net_device_stats *br_dev_get_cstats(struct net_device *dev)
+{
+	struct net_bridge *br = netdev_priv(dev);
+
+	return &br->cstats;
+}
+
+
+static void *br_dev_get_stats_p(struct net_device * dev_p,char type) {
+
+	switch (type) {
+		case 'd':
+			return br_dev_get_stats(dev_p);
+		case 'c':
+			return  br_dev_get_cstats(dev_p);
+		case 'b':
+			return  br_dev_get_bstats(dev_p);
+	}
+	return NULL;
+}
+                                
+static void br_dev_update_stats(struct net_device * dev_p, 
+                                BlogStats_t * blogStats_p)
+{
+	BlogStats_t * bStats_p;
+
+	if ( dev_p == (struct net_device *)NULL )
+		return;
+
+	bStats_p = br_dev_get_bstats(dev_p);
+
+	bStats_p->rx_packets += blogStats_p->rx_packets;
+	bStats_p->tx_packets += blogStats_p->tx_packets;
+	bStats_p->rx_bytes   += blogStats_p->rx_bytes;
+	bStats_p->tx_bytes   += blogStats_p->tx_bytes;
+	bStats_p->multicast  += blogStats_p->multicast;
+
+	return;
+}
+
+#endif /* CONFIG_BLOG */
 
 /* net device transmit always called with BH disabled */
 netdev_tx_t br_dev_xmit(struct sk_buff *skb, struct net_device *dev)
@@ -30,11 +107,41 @@ netdev_tx_t br_dev_xmit(struct sk_buff *skb, struct net_device *dev)
 	struct net_bridge_fdb_entry *dst;
 	struct net_bridge_mdb_entry *mdst;
 	struct br_cpu_netstats *brstats = this_cpu_ptr(br->stats);
+#if (defined(CONFIG_BCM_KF_IGMP) && defined(CONFIG_BR_IGMP_SNOOP))
+	struct iphdr *pipmcast = NULL;
+	struct igmphdr *pigmp = NULL;
+#endif
+#if (defined(CONFIG_BCM_KF_MLD) && defined(CONFIG_BR_MLD_SNOOP))
+	struct ipv6hdr *pipv6mcast = NULL;
+	struct icmp6hdr *picmpv6 = NULL;
+#endif
 
 #ifdef CONFIG_BRIDGE_NETFILTER
 	if (skb->nf_bridge && (skb->nf_bridge->mask & BRNF_BRIDGED_DNAT)) {
 		br_nf_pre_routing_finish_bridge_slow(skb);
 		return NETDEV_TX_OK;
+	}
+#endif
+
+#if defined(CONFIG_BCM_KF_EXTSTATS) && defined(CONFIG_BLOG)
+	blog_lock();
+	blog_link(IF_DEVICE, blog_ptr(skb), (void*)dev, DIR_TX, skb->len);
+	blog_unlock();
+
+	/* Gather general TX statistics */
+	dev->stats.tx_packets++;
+	dev->stats.tx_bytes += skb->len;
+
+	/* Gather packet specific packet data using pkt_type calculations from the ethernet driver */
+	switch (skb->pkt_type) {
+	case PACKET_BROADCAST:
+		dev->stats.tx_broadcast_packets++;
+		break;
+
+	case PACKET_MULTICAST:
+		dev->stats.tx_multicast_packets++;
+		dev->stats.tx_multicast_bytes += skb->len;
+		break;
 	}
 #endif
 
@@ -49,6 +156,28 @@ netdev_tx_t br_dev_xmit(struct sk_buff *skb, struct net_device *dev)
 	skb_pull(skb, ETH_HLEN);
 
 	rcu_read_lock();
+
+#if defined(CONFIG_BCM_KF_MLD) && defined(CONFIG_BR_MLD_SNOOP)
+	br_mld_get_ip_icmp_hdrs(skb, &pipv6mcast, &picmpv6, NULL);
+	if (pipv6mcast != NULL) {
+		if (br_mld_mc_forward(br, skb, 0, 1)) {
+			/* skb consumed so exit */
+			goto out;
+		}
+	}
+	else
+#endif
+#if defined(CONFIG_BCM_KF_IGMP) && defined(CONFIG_BR_IGMP_SNOOP)
+	br_igmp_get_ip_igmp_hdrs(skb, &pipmcast, &pigmp, NULL);
+	if ( pipmcast != NULL )
+	{
+		if (br_igmp_mc_forward(br, skb, 0, 1)) {
+			/* skb consumed so exit */
+			goto out;
+		}
+	}
+#endif
+
 	if (is_broadcast_ether_addr(dest))
 		br_flood_deliver(br, skb);
 	else if (is_multicast_ether_addr(dest)) {
@@ -67,7 +196,44 @@ netdev_tx_t br_dev_xmit(struct sk_buff *skb, struct net_device *dev)
 		else
 			br_flood_deliver(br, skb);
 	} else if ((dst = __br_fdb_get(br, dest)) != NULL)
+#if defined(CONFIG_BCM_KF_BLOG) && defined(CONFIG_BLOG)
+	{
+		blog_lock();
+		blog_link(BRIDGEFDB, blog_ptr(skb), (void*)dst, BLOG_PARAM1_DSTFDB, 0);
+		blog_unlock();
+#if defined(CONFIG_BCM_KF_WL)
+#if defined(PKTC)
+		if (wl_pktc_req_hook && (dst->dst != NULL) &&
+			(BLOG_GET_PHYTYPE(dst->dst->dev->path.hw_port_type) == BLOG_WLANPHY) && 
+			wl_pktc_req_hook(GET_PKTC_TX_MODE, 0, 0, 0))
+		{
+			struct net_device *dst_dev_p = dst->dst->dev;
+			uint32_t chainIdx = wl_pktc_req_hook(UPDATE_BRC_HOT, (uint32_t)&(dst->addr.addr[0]), (uint32_t)dst_dev_p, 0);
+			if (chainIdx != INVALID_CHAIN_IDX)
+			{
+				// Update chainIdx in blog
+				if (skb->blog_p != NULL)
+				{
+					skb->blog_p->wfd.nic_ucast.is_tx_hw_acc_en = 1;
+					skb->blog_p->wfd.nic_ucast.is_wfd = 1;
+					skb->blog_p->wfd.nic_ucast.is_chain = 1;
+					skb->blog_p->wfd.nic_ucast.wfd_idx = ((chainIdx & WFD_IDX_UINT16_BIT_MASK) >> WFD_IDX_UINT16_BIT_POS);
+					skb->blog_p->wfd.nic_ucast.chain_idx = chainIdx;
+					//printk("%s: Added ChainEntryIdx 0x%x Dev %s blogSrcAddr 0x%x blogDstAddr 0x%x DstMac %x:%x:%x:%x:%x:%x "
+					//       "wfd_q %d wl_metadata %d wl 0x%x\n", __FUNCTION__,
+					//        chainIdx, dst->dst->dev->name, skb->blog_p->rx.tuple.saddr, skb->blog_p->rx.tuple.daddr,
+					//        dst->addr.addr[0], dst->addr.addr[1], dst->addr.addr[2], dst->addr.addr[3], dst->addr.addr[4],
+					//        dst->addr.addr[5], skb->blog_p->wfd_queue, skb->blog_p->wl_metadata, skb->blog_p->wl);
+				}
+			}
+		}
+#endif
+#endif
 		br_deliver(dst->dst, skb);
+	}        
+#else
+		br_deliver(dst->dst, skb);
+#endif
 	else
 		br_flood_deliver(br, skb);
 
@@ -115,6 +281,7 @@ static int br_dev_stop(struct net_device *dev)
 	return 0;
 }
 
+#if !(defined(CONFIG_BCM_KF_BLOG) && defined(CONFIG_BLOG))
 static struct rtnl_link_stats64 *br_get_stats64(struct net_device *dev,
 						struct rtnl_link_stats64 *stats)
 {
@@ -143,6 +310,7 @@ static struct rtnl_link_stats64 *br_get_stats64(struct net_device *dev,
 
 	return stats;
 }
+#endif
 
 static int br_change_mtu(struct net_device *dev, int new_mtu)
 {
@@ -304,7 +472,11 @@ static const struct net_device_ops br_netdev_ops = {
 	.ndo_stop		 = br_dev_stop,
 	.ndo_init		 = br_dev_init,
 	.ndo_start_xmit		 = br_dev_xmit,
+#if defined(CONFIG_BCM_KF_BLOG) && defined(CONFIG_BLOG)
+	.ndo_get_stats		 = net_dev_collect_stats,
+#else
 	.ndo_get_stats64	 = br_get_stats64,
+#endif
 	.ndo_set_mac_address	 = br_set_mac_address,
 	.ndo_set_rx_mode	 = br_dev_set_multicast_list,
 	.ndo_change_mtu		 = br_change_mtu,
@@ -338,6 +510,12 @@ void br_dev_setup(struct net_device *dev)
 	eth_hw_addr_random(dev);
 	ether_setup(dev);
 
+#if defined(CONFIG_BCM_KF_BLOG) && defined(CONFIG_BLOG)
+	dev->put_stats = br_dev_update_stats;
+	dev->get_stats_pointer = br_dev_get_stats_p;
+	dev->clr_stats = net_dev_clear_stats;
+#endif
+
 	dev->netdev_ops = &br_netdev_ops;
 	dev->destructor = br_dev_free;
 	SET_ETHTOOL_OPS(dev, &br_ethtool_ops);
@@ -370,8 +548,28 @@ void br_dev_setup(struct net_device *dev)
 	br->bridge_hello_time = br->hello_time = 2 * HZ;
 	br->bridge_forward_delay = br->forward_delay = 15 * HZ;
 	br->ageing_time = 300 * HZ;
+#if defined(CONFIG_BCM_KF_BRIDGE_COUNTERS)
+	br->mac_entry_discard_counter = 0;
+#endif
 
 	br_netfilter_rtable_init(br);
 	br_stp_timer_init(br);
 	br_multicast_init(br);
+
+#if defined(CONFIG_BCM_KF_NETFILTER)
+	br->num_fdb_entries = 0;
+#endif
+
+#if defined(CONFIG_BCM_KF_BRIDGE_MAC_FDB_LIMIT) && defined(CONFIG_BCM_BRIDGE_MAC_FDB_LIMIT)
+	br->max_br_fdb_entries = BR_MAX_FDB_ENTRIES;
+	br->used_br_fdb_entries = 0;
+#endif
+
+#if defined(CONFIG_BCM_KF_IGMP) && defined(CONFIG_BR_IGMP_SNOOP)
+	br_igmp_snooping_br_init(br);
+#endif
+
+#if defined(CONFIG_BCM_KF_MLD) && defined(CONFIG_BR_MLD_SNOOP)
+	br_mld_snooping_br_init(br);
+#endif
 }

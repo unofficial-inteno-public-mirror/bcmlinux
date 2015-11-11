@@ -40,6 +40,10 @@
 #define ARPHRD_METRICOM	23		/* Metricom STRIP (new IANA id)	*/
 #define	ARPHRD_IEEE1394	24		/* IEEE 1394 IPv4 - RFC 2734	*/
 #define ARPHRD_EUI64	27		/* EUI-64                       */
+#if defined(CONFIG_BCM_KF_IP)
+#define ARPHRD_CPCS     28              /* CPCS                         */
+#define ARPHRD_DSL      29              /* ADSL                         */
+#endif
 #define ARPHRD_INFINIBAND 32		/* InfiniBand			*/
 
 /* Dummy types for non ARP hardware */
@@ -91,6 +95,9 @@
 #define ARPHRD_PHONET	820		/* PhoNet media type		*/
 #define ARPHRD_PHONET_PIPE 821		/* PhoNet pipe header		*/
 #define ARPHRD_CAIF	822		/* CAIF media type		*/
+#ifdef CONFIG_BCM_KF_MHI
+#define ARPHRD_MHI	1823		/* Modem-Host IF		*/
+#endif
 
 #define ARPHRD_VOID	  0xFFFF	/* Void type, nothing is known */
 #define ARPHRD_NONE	  0xFFFE	/* zero header length */

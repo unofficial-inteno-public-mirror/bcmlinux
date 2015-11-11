@@ -31,6 +31,11 @@
 #include <trace/events/irq.h>
 
 #include <asm/irq.h>
+
+#if defined(CONFIG_BCM_KF_BUZZZ) && defined(CONFIG_BUZZZ_KEVT)
+#include <asm/buzzz.h>
+#endif  /*  CONFIG_BUZZZ_KEVT */
+
 /*
    - No shared variables, all the data are CPU local.
    - If a softirq needs serialization, let it serialize itself
@@ -153,7 +158,17 @@ static void handle_pending_softirqs(u32 pending, int cpu, int need_rcu_bh_qs)
 
 		kstat_incr_softirqs_this_cpu(vec_nr);
 		trace_softirq_entry(vec_nr);
+
+#if defined(CONFIG_BCM_KF_BUZZZ) && defined(CONFIG_BUZZZ_KEVT) && (BUZZZ_KEVT_LVL >= 1)
+		buzzz_kevt_log1(BUZZZ_KEVT_ID_SIRQ_ENTRY, (int)h->action);
+#endif  /*  CONFIG_BUZZZ_KEVT && BUZZZ_KEVT_LVL >= 1 */
+
 		h->action(h);
+
+#if defined(CONFIG_BCM_KF_BUZZZ) && defined(CONFIG_BUZZZ_KEVT) && (BUZZZ_KEVT_LVL >= 1)
+		buzzz_kevt_log1(BUZZZ_KEVT_ID_SIRQ_EXIT, (int)h->action);
+#endif  /*  CONFIG_BUZZZ_KEVT && BUZZZ_KEVT_LVL >= 1 */
+
 		trace_softirq_exit(vec_nr);
 		if (unlikely(prev_count != preempt_count())) {
 			printk(KERN_ERR

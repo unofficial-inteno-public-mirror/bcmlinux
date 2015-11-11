@@ -25,3 +25,8 @@ obj-$(CONFIG_INPUT_MISC)	+= misc/
 
 obj-$(CONFIG_INPUT_APMPOWER)	+= apm-power.o
 obj-$(CONFIG_INPUT_OF_MATRIX_KEYMAP) += of_keymap.o
+ifdef BCM_KF # defined(CONFIG_BCM_KF_ANDROID)
+ifneq ($(strip $(CONFIG_BCM_ANDROID)),)
+obj-$(CONFIG_INPUT_KEYRESET)	+= keyreset.o
+endif
+endif # BCM_KF # defined(CONFIG_BCM_KF_ANDROID)

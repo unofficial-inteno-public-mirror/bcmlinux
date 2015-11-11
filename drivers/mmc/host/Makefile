@@ -54,6 +54,16 @@ obj-$(CONFIG_MMC_SDHCI_TEGRA)		+= sdhci-tegra.o
 obj-$(CONFIG_MMC_SDHCI_OF_ESDHC)	+= sdhci-of-esdhc.o
 obj-$(CONFIG_MMC_SDHCI_OF_HLWD)		+= sdhci-of-hlwd.o
 
+ifdef BCM_KF # defined(CONFIG_BCM_KF_EMMC)
+obj-$(CONFIG_MMC_SDHCI_BCM63xx)		+= sdhci-bcm63xx.o
+endif # BCM_KF
+
 ifeq ($(CONFIG_CB710_DEBUG),y)
 	CFLAGS-cb710-mmc	+= -DDEBUG
 endif
+
+ifdef BCM_KF # defined(CONFIG_BCM_KF_EMMC)
+ifeq ($(CONFIG_MMC_SDHCI_BCM63xx),y)
+	EXTRA_CFLAGS += -I$(INC_BRCMBOARDPARMS_PATH)/$(BRCM_BOARD) -I$(SRCBASE)/include -I$(INC_BRCMDRIVER_PUB_PATH)/$(BRCM_BOARD) -I$(INC_BRCMSHARED_PUB_PATH)/$(BRCM_BOARD)
+endif
+endif # BCM_KF

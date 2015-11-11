@@ -34,6 +34,11 @@
 #define N_TI_WL		22	/* for TI's WL BT, FM, GPS combo chips */
 #define N_TRACESINK	23	/* Trace data routing for MIPI P1149.7 */
 #define N_TRACEROUTER	24	/* Trace data routing for MIPI P1149.7 */
+#ifdef CONFIG_BCM_KF_PHONET
+#define N_BRCM_HCI	25	/* Broadcom Bluetooth HCI */
+#define N_PHONET	26	/* PHONET over USB/ACM */
+#define N_LDTMODEM	27	/* Line discipline for Thin Modem support */
+#endif
 
 #ifdef __KERNEL__
 #include <linux/fs.h>

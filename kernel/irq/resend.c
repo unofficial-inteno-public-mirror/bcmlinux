@@ -20,6 +20,10 @@
 
 #include "internals.h"
 
+#if defined(CONFIG_BCM_KF_BUZZZ) && defined(CONFIG_BUZZZ_KEVT)
+#include <asm/buzzz.h>
+#endif    /*  CONFIG_BUZZZ_KEVT */
+
 #ifdef CONFIG_HARDIRQS_SW_RESEND
 
 /* Bitmap to handle software resend of interrupts: */
@@ -35,6 +39,11 @@ static void resend_irqs(unsigned long arg)
 
 	while (!bitmap_empty(irqs_resend, nr_irqs)) {
 		irq = find_first_bit(irqs_resend, nr_irqs);
+
+#if defined(CONFIG_BCM_KF_BUZZZ) && defined(CONFIG_BUZZZ_KEVT) && (BUZZZ_KEVT_LVL >= 1)
+		buzzz_kevt_log1(BUZZZ_KEVT_ID_IRQ_RESEND, irq);
+#endif  /*  CONFIG_BUZZZ_KEVT && BUZZZ_KEVT_LVL >= 1 */
+
 		clear_bit(irq, irqs_resend);
 		desc = irq_to_desc(irq);
 		local_irq_disable();
@@ -55,6 +64,10 @@ static DECLARE_TASKLET(resend_tasklet, resend_irqs, 0);
  */
 void check_irq_resend(struct irq_desc *desc, unsigned int irq)
 {
+#if defined(CONFIG_BCM_KF_BUZZZ) && defined(CONFIG_BUZZZ_KEVT) && (BUZZZ_KEVT_LVL >= 1)
+	buzzz_kevt_log1(BUZZZ_KEVT_ID_IRQ_CHECK, irq);
+#endif  /*  CONFIG_BUZZZ_KEVT && BUZZZ_KEVT_LVL >= 1 */
+
 	/*
 	 * We do not resend level type interrupts. Level type
 	 * interrupts are resent by hardware when they are still

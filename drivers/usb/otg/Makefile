@@ -7,6 +7,11 @@ ccflags-$(CONFIG_USB_GADGET_DEBUG)	+= -DDEBUG
 
 # infrastructure
 obj-$(CONFIG_USB_OTG_UTILS)	+= otg.o
+ifdef BCM_KF # defined(CONFIG_BCM_KF_ANDROID)
+ifneq ($(strip $(CONFIG_BCM_ANDROID)),)
+obj-$(CONFIG_USB_OTG_WAKELOCK)	+= otg-wakelock.o
+endif
+endif # BCM_KF # defined(CONFIG_BCM_KF_ANDROID)
 
 # transceiver drivers
 obj-$(CONFIG_USB_GPIO_VBUS)	+= gpio_vbus.o

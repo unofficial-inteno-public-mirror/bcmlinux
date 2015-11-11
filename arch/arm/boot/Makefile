@@ -27,6 +27,17 @@ export ZRELADDR INITRD_PHYS PARAMS_PHYS
 
 targets := Image zImage xipImage bootpImage uImage
 
+ifdef BCM_KF # defined(CONFIG_BCM_KF_ANDROID)
+ifneq ($(strip $(CONFIG_BCM_ANDROID)),)
+DTB_NAMES := $(subst $\",,$(CONFIG_BUILD_ARM_APPENDED_DTB_IMAGE_NAMES))
+ifneq ($(DTB_NAMES),)
+DTB_LIST := $(addsuffix .dtb,$(DTB_NAMES))
+else
+DTB_LIST := $(dtb-y)
+endif
+DTB_OBJS := $(addprefix $(obj)/,$(DTB_LIST))
+endif
+endif # BCM_KF # defined(CONFIG_BCM_KF_ANDROID)
 ifeq ($(CONFIG_XIP_KERNEL),y)
 
 $(obj)/xipImage: vmlinux FORCE
@@ -55,15 +66,39 @@ $(obj)/zImage:	$(obj)/compressed/vmlinux FORCE
 	$(call if_changed,objcopy)
 	@echo '  Kernel: $@ is ready'
 
+ifdef BCM_KF # defined(CONFIG_BCM_KF_ANDROID)
+ifneq ($(strip $(CONFIG_BCM_ANDROID)),)
+$(obj)/zImage-dtb:	$(obj)/zImage $(DTB_OBJS) FORCE
+	$(call if_changed,cat)
+	@echo '  Kernel: $@ is ready'
+endif
+endif # BCM_KF # defined(CONFIG_BCM_KF_ANDROID)
+
 endif
 
+ifdef BCM_KF # defined(CONFIG_BCM_KF_ANDROID)
+ifneq ($(strip $(CONFIG_BCM_ANDROID)),)
+targets += $(DTB_LIST)
+else
 targets += $(dtb-y)
+endif
+else # BCM_KF # defined(CONFIG_BCM_KF_ANDROID)
+targets += $(dtb-y)
+endif # BCM_KF # defined(CONFIG_BCM_KF_ANDROID)
 
 # Rule to build device tree blobs
 $(obj)/%.dtb: $(src)/dts/%.dts FORCE
 	$(call if_changed_dep,dtc)
 
+ifdef BCM_KF # defined(CONFIG_BCM_KF_ANDROID)
+ifneq ($(strip $(CONFIG_BCM_ANDROID)),)
+$(obj)/dtbs: $(DTB_OBJS)
+else
 $(obj)/dtbs: $(addprefix $(obj)/, $(dtb-y))
+endif
+else # BCM_KF # defined(CONFIG_BCM_KF_ANDROID)
+$(obj)/dtbs: $(addprefix $(obj)/, $(dtb-y))
+endif # BCM_KF # defined(CONFIG_BCM_KF_ANDROID)
 
 clean-files := *.dtb
 

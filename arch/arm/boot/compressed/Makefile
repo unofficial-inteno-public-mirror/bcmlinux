@@ -126,8 +126,19 @@ KBUILD_CFLAGS = $(subst -pg, , $(ORIG_CFLAGS))
 endif
 
 ccflags-y := -fpic -fno-builtin -I$(obj)
+ifdef BCM_KF # defined(CONFIG_BCM_KF_ANDROID)
+ifneq ($(strip $(CONFIG_BCM_ANDROID)),)
+asflags-y :=
+else
 asflags-y := -Wa,-march=all
+endif
+else # BCM_KF # defined(CONFIG_BCM_KF_ANDROID)
+asflags-y := -Wa,-march=all
+endif # BCM_KF # defined(CONFIG_BCM_KF_ANDROID)
 
+ifdef BCM_KF # defined(CONFIG_BCM_KF_ARM_BCM963XX)
+EXTRA_CFLAGS += -I$(INC_BRCMDRIVER_PUB_PATH)/$(BRCM_BOARD) -I$(INC_BRCMSHARED_PUB_PATH)/$(BRCM_BOARD)
+endif # BCM_KF # defined(CONFIG_BCM_KF_MISC_MAKEFILE)
 # Supply kernel BSS size to the decompressor via a linker symbol.
 KBSS_SZ = $(shell $(CROSS_COMPILE)size $(obj)/../../../../vmlinux | \
 		awk 'END{print $$3}')

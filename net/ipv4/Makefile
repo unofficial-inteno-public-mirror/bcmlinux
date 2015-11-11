@@ -2,6 +2,11 @@
 # Makefile for the Linux TCP/IP (INET) layer.
 #
 
+ifdef BCM_KF # defined(CONFIG_BCM_KF_BLOG)
+EXTRA_CFLAGS	+= -I$(INC_BRCMDRIVER_PUB_PATH)/$(BRCM_BOARD)
+EXTRA_CFLAGS	+= -I$(INC_BRCMSHARED_PUB_PATH)/bcm963xx
+endif # BCM_KF
+
 obj-y     := route.o inetpeer.o protocol.o \
 	     ip_input.o ip_fragment.o ip_forward.o ip_options.o \
 	     ip_output.o ip_sockglue.o inet_hashtables.o \
@@ -14,6 +19,11 @@ obj-y     := route.o inetpeer.o protocol.o \
 	     inet_fragment.o ping.o
 
 obj-$(CONFIG_SYSCTL) += sysctl_net_ipv4.o
+ifdef BCM_KF # defined(CONFIG_BCM_KF_ANDROID)
+ifneq ($(strip $(CONFIG_BCM_ANDROID)),)
+obj-$(CONFIG_SYSFS) += sysfs_net_ipv4.o
+endif
+endif # BCM_KF # defined(CONFIG_BCM_KF_ANDROID)
 obj-$(CONFIG_PROC_FS) += proc.o
 obj-$(CONFIG_IP_MULTIPLE_TABLES) += fib_rules.o
 obj-$(CONFIG_IP_MROUTE) += ipmr.o

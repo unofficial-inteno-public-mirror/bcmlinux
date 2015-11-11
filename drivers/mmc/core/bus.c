@@ -122,6 +122,8 @@ static int mmc_bus_remove(struct device *dev)
 	return 0;
 }
 
+#if defined(CONFIG_BCM_KF_EMMC)
+#ifdef CONFIG_PM_SLEEP
 static int mmc_bus_suspend(struct device *dev)
 {
 	struct mmc_driver *drv = to_mmc_driver(dev->driver);
@@ -143,6 +145,30 @@ static int mmc_bus_resume(struct device *dev)
 		ret = drv->resume(card);
 	return ret;
 }
+#endif
+#else
+static int mmc_bus_suspend(struct device *dev)
+{
+	struct mmc_driver *drv = to_mmc_driver(dev->driver);
+	struct mmc_card *card = mmc_dev_to_card(dev);
+	int ret = 0;
+
+	if (dev->driver && drv->suspend)
+		ret = drv->suspend(card);
+	return ret;
+}
+
+static int mmc_bus_resume(struct device *dev)
+{
+	struct mmc_driver *drv = to_mmc_driver(dev->driver);
+	struct mmc_card *card = mmc_dev_to_card(dev);
+	int ret = 0;
+
+	if (dev->driver && drv->resume)
+		ret = drv->resume(card);
+	return ret;
+}
+#endif /* CONFIG_BCM_KF_EMMC */
 
 #ifdef CONFIG_PM_RUNTIME
 

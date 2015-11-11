@@ -21,5 +21,12 @@ obj-$(CONFIG_SYS_HYPERVISOR) += hypervisor.o
 obj-$(CONFIG_REGMAP)	+= regmap/
 obj-$(CONFIG_SOC_BUS) += soc.o
 
+ifdef BCM_KF # defined(CONFIG_BCM_KF_ANDROID)
+ifneq ($(strip $(CONFIG_BCM_ANDROID)),)
+obj-$(CONFIG_SYNC)	+= sync.o
+obj-$(CONFIG_SW_SYNC)	+= sw_sync.o
+endif
+endif # BCM_KF # defined(CONFIG_BCM_KF_ANDROID)
+
 ccflags-$(CONFIG_DEBUG_DRIVER) := -DDEBUG
 

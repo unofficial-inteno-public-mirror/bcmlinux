@@ -92,6 +92,11 @@
 #define ETH_P_EDSA	0xDADA		/* Ethertype DSA [ NOT AN OFFICIALLY REGISTERED ID ] */
 #define ETH_P_AF_IUCV   0xFBFB		/* IBM af_iucv [ NOT AN OFFICIALLY REGISTERED ID ] */
 
+#if defined(CONFIG_BCM_KF_VLAN)
+#define ETH_P_8021AG	0x8902		/* 802.1ag Connectivity Fault Mgmt */
+#define	ETH_P_8023AH	0x8809      /* 802.3ah Ethernet OAM */
+#endif
+
 /*
  *	Non DIX types. Won't clash for 1500 types.
  */
@@ -119,6 +124,11 @@
 #define ETH_P_PHONET	0x00F5		/* Nokia Phonet frames          */
 #define ETH_P_IEEE802154 0x00F6		/* IEEE802.15.4 frame		*/
 #define ETH_P_CAIF	0x00F7		/* ST-Ericsson CAIF protocol	*/
+#ifdef CONFIG_BCM_KF_MHI
+#define ETH_P_MHI	0x00F8		/* Renesas MHI protocol		*/
+#define ETH_P_RAW	0x00F9		/* RAW access to frames		*/
+#define ETH_P_MHDP	0x00FA		/* MHDP data frames		*/
+#endif
 
 /*
  *	This is an Ethernet frame header.

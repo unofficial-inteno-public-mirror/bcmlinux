@@ -1,10 +1,20 @@
 menu "Remoteproc drivers (EXPERIMENTAL)"
 
+if !BCM_KF_ANDROID
 # REMOTEPROC gets selected by whoever wants it
 config REMOTEPROC
 	tristate
 	depends on EXPERIMENTAL
 	select FW_CONFIG
+endif
+if BCM_KF_ANDROID
+# REMOTEPROC gets selected by whoever wants it
+config REMOTEPROC
+	tristate
+	depends on EXPERIMENTAL
+	select FW_CONFIG
+	select VIRTIO
+endif
 
 config OMAP_REMOTEPROC
 	tristate "OMAP remoteproc support"

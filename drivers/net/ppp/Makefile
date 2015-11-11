@@ -11,3 +11,9 @@ obj-$(CONFIG_PPP_SYNC_TTY) += ppp_synctty.o
 obj-$(CONFIG_PPPOE) += pppox.o pppoe.o
 obj-$(CONFIG_PPPOL2TP) += pppox.o
 obj-$(CONFIG_PPTP) += pppox.o pptp.o
+ifdef BCM_KF # defined(CONFIG_BCM_KF_ANDROID)
+ifneq ($(strip $(CONFIG_BCM_ANDROID)),)
+obj-$(CONFIG_PPPOLAC) += pppox.o pppolac.o
+obj-$(CONFIG_PPPOPNS) += pppox.o pppopns.o
+endif
+endif # BCM_KF # defined(CONFIG_BCM_KF_ANDROID)

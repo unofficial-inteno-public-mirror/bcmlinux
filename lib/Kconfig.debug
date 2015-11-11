@@ -182,9 +182,23 @@ config LOCKUP_DETECTOR
 	  The frequency of hrtimer and NMI events and the soft and hard lockup
 	  thresholds can be controlled through the sysctl watchdog_thresh.
 
+if !BCM_KF_ANDROID
 config HARDLOCKUP_DETECTOR
 	def_bool LOCKUP_DETECTOR && PERF_EVENTS && HAVE_PERF_EVENTS_NMI && \
 		 !HAVE_NMI_WATCHDOG
+endif
+if BCM_KF_ANDROID
+config HARDLOCKUP_DETECTOR_NMI
+	def_bool LOCKUP_DETECTOR && PERF_EVENTS && HAVE_PERF_EVENTS_NMI && \
+		 !HAVE_NMI_WATCHDOG
+
+config HARDLOCKUP_DETECTOR_OTHER_CPU
+	def_bool LOCKUP_DETECTOR && SMP && !HARDLOCKUP_DETECTOR_NMI && \
+		 !HAVE_NMI_WATCHDOG
+
+config HARDLOCKUP_DETECTOR
+	def_bool HARDLOCKUP_DETECTOR_NMI || HARDLOCKUP_DETECTOR_OTHER_CPU
+endif
 
 config BOOTPARAM_HARDLOCKUP_PANIC
 	bool "Panic (Reboot) On Hard Lockups"
@@ -302,6 +316,16 @@ config SCHEDSTATS
 	  If you aren't debugging the scheduler or trying to tune a specific
 	  application, you can say N to avoid the very slight overhead
 	  this adds.
+
+# BRCM CONFIG_BCM_KF_PROC_BCM
+config BCM_SCHEDAUDIT
+	bool "Broadcom Scheduler Audit features"
+	depends on PROC_FS
+	default n
+	help
+	  If you say Y here, the /proc/<pid>/bcm_schedaudit file will be
+	  provided to allow auditing of scheduler performance.
+# BRCM END
 
 config TIMER_STATS
 	bool "Collect kernel timers statistics"
@@ -675,9 +699,17 @@ config DEBUG_LOCKING_API_SELFTESTS
 	  The following locking APIs are covered: spinlocks, rwlocks,
 	  mutexes and rwsems.
 
+if !BCM_KF_ANDROID
 config STACKTRACE
 	bool
 	depends on STACKTRACE_SUPPORT
+endif
+if BCM_KF_ANDROID
+config STACKTRACE
+	bool "Stacktrace"
+	depends on STACKTRACE_SUPPORT
+	default y
+endif
 
 config DEBUG_STACK_USAGE
 	bool "Stack utilization instrumentation"

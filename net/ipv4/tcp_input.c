@@ -75,6 +75,11 @@
 #include <asm/unaligned.h>
 #include <net/netdma.h>
 
+#if ((defined(CONFIG_BCM_KF_RECVFILE) && defined(CONFIG_BCM_RECVFILE)) \
+     && (defined(CONFIG_BCM963138) || defined(CONFIG_BCM963148)))
+#include <linux/nbuff.h>
+#endif
+
 int sysctl_tcp_timestamps __read_mostly = 1;
 int sysctl_tcp_window_scaling __read_mostly = 1;
 int sysctl_tcp_sack __read_mostly = 1;
@@ -4499,9 +4504,23 @@ static void tcp_data_queue_ofo(struct sock *sk, struct sk_buff *skb)
 		if (skb->len <= skb_tailroom(skb1) && !tcp_hdr(skb)->fin) {
 			NET_INC_STATS_BH(sock_net(sk),
 					 LINUX_MIB_TCPRCVCOALESCE);
+#if ((defined(CONFIG_BCM_KF_RECVFILE) && defined(CONFIG_BCM_RECVFILE)) \
+		&& (defined(CONFIG_BCM963138) || defined(CONFIG_BCM963148)))
+			/* cache flush is needed for M2M DMA & for optimization of
+			 * cache invalidate during recycle using skb->dirty_p
+			 */ 
+			{
+				unsigned char *data = skb_put(skb1, skb->len);
+
+				BUG_ON(skb_copy_bits(skb, 0, data, skb->len));
+
+				cache_flush_len(data, skb->len);
+			}
+#else
 			BUG_ON(skb_copy_bits(skb, 0,
 					     skb_put(skb1, skb->len),
 					     skb->len));
+#endif
 			TCP_SKB_CB(skb1)->end_seq = end_seq;
 			TCP_SKB_CB(skb1)->ack_seq = TCP_SKB_CB(skb)->ack_seq;
 			__kfree_skb(skb);
@@ -4803,6 +4822,7 @@ restart:
 		skb_set_owner_r(nskb, sk);
 
 		/* Copy data, releasing collapsed skbs. */
+
 		while (copy > 0) {
 			int offset = start - TCP_SKB_CB(skb)->seq;
 			int size = TCP_SKB_CB(skb)->end_seq - start;
@@ -4810,8 +4830,23 @@ restart:
 			BUG_ON(offset < 0);
 			if (size > 0) {
 				size = min(copy, size);
+#if ((defined(CONFIG_BCM_KF_RECVFILE) && defined(CONFIG_BCM_RECVFILE)) \
+		&& (defined(CONFIG_BCM963138) || defined(CONFIG_BCM963148)))
+				/*cache flush is needed for M2M DMA & for optimization of
+				 * cache invalidate during recycle using skb->dirty_p
+				 */ 
+				{
+					unsigned char *data = skb_put(nskb, size);
+
+					if (skb_copy_bits(skb, offset, data, size))
+						BUG();
+
+					cache_flush_len(data, size);
+				}
+#else
 				if (skb_copy_bits(skb, offset, skb_put(nskb, size), size))
 					BUG();
+#endif
 				TCP_SKB_CB(nskb)->end_seq += size;
 				copy -= size;
 				start += size;

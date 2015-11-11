@@ -7,6 +7,11 @@ obj-y				:= dma-mapping.o extable.o fault.o init.o \
 
 obj-$(CONFIG_MMU)		+= fault-armv.o flush.o idmap.o ioremap.o \
 				   mmap.o pgd.o mmu.o vmregion.o
+ifdef BCM_KF # defined(CONFIG_BCM_KF_ANDROID)
+ifneq ($(strip $(CONFIG_BCM_ANDROID)),)
+obj-$(CONFIG_DEBUG_RODATA)	+= rodata.o
+endif
+endif # BCM_KF # defined(CONFIG_BCM_KF_ANDROID)
 
 ifneq ($(CONFIG_MMU),y)
 obj-y				+= nommu.o

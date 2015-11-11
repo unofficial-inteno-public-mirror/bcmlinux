@@ -156,6 +156,14 @@ uint16_t jffs2_compress(struct jffs2_sb_info *c, struct jffs2_inode_info *f,
 	uint32_t orig_slen, orig_dlen;
 	uint32_t best_slen=0, best_dlen=0;
 
+#if defined(CONFIG_BCM_KF_JFFS)
+	if( (f->inocache->flags & INO_FLAGS_COMPR_NONE) == INO_FLAGS_COMPR_NONE )
+	{
+		ret = JFFS2_COMPR_NONE;
+		goto out;
+	}
+#endif
+
 	if (c->mount_opts.override_compr)
 		mode = c->mount_opts.compr;
 	else
@@ -240,6 +248,10 @@ uint16_t jffs2_compress(struct jffs2_sb_info *c, struct jffs2_inode_info *f,
 	default:
 		pr_err("unknown compression mode\n");
 	}
+
+#if defined(CONFIG_BCM_KF_JFFS)
+out:
+#endif
 
 	if (ret == JFFS2_COMPR_NONE) {
 		*cpage_out = data_in;
@@ -378,6 +390,10 @@ int __init jffs2_compressors_init(void)
 #ifdef CONFIG_JFFS2_LZO
 	jffs2_lzo_init();
 #endif
+#ifdef CONFIG_JFFS2_LZMA
+        jffs2_lzma_init();
+#endif
+
 /* Setting default compression mode */
 #ifdef CONFIG_JFFS2_CMODE_NONE
 	jffs2_compression_mode = JFFS2_COMPR_MODE_NONE;
@@ -401,6 +417,9 @@ int __init jffs2_compressors_init(void)
 int jffs2_compressors_exit(void)
 {
 /* Unregistering compressors */
+#ifdef CONFIG_JFFS2_LZMA
+        jffs2_lzma_exit();
+#endif
 #ifdef CONFIG_JFFS2_LZO
 	jffs2_lzo_exit();
 #endif

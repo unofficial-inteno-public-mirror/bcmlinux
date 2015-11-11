@@ -1,3 +1,7 @@
+ifdef BCM_KF # defined(CONFIG_BCM_KF_NETFILTER)
+EXTRA_CFLAGS	+= -I$(INC_BRCMDRIVER_PUB_PATH)/$(BRCM_BOARD)
+endif #BCM_KF # defined(CONFIG_BCM_KF_NETFILTER)
+
 netfilter-objs := core.o nf_log.o nf_queue.o nf_sockopt.o
 
 nf_conntrack-y	:= nf_conntrack_core.o nf_conntrack_standalone.o nf_conntrack_expect.o nf_conntrack_helper.o nf_conntrack_proto.o nf_conntrack_l3proto_generic.o nf_conntrack_proto_generic.o nf_conntrack_proto_tcp.o nf_conntrack_proto_udp.o nf_conntrack_extend.o nf_conntrack_acct.o
@@ -20,6 +24,9 @@ obj-$(CONFIG_NF_CT_PROTO_DCCP) += nf_conntrack_proto_dccp.o
 obj-$(CONFIG_NF_CT_PROTO_GRE) += nf_conntrack_proto_gre.o
 obj-$(CONFIG_NF_CT_PROTO_SCTP) += nf_conntrack_proto_sctp.o
 obj-$(CONFIG_NF_CT_PROTO_UDPLITE) += nf_conntrack_proto_udplite.o
+ifdef BCM_KF # defined(CONFIG_BCM_KF_NETFILTER)
+obj-$(CONFIG_NF_CT_PROTO_ESP) += nf_conntrack_proto_esp.o
+endif #BCM_KF
 
 # netlink interface for nf_conntrack
 obj-$(CONFIG_NF_CT_NETLINK) += nf_conntrack_netlink.o
@@ -39,6 +46,11 @@ obj-$(CONFIG_NF_CONNTRACK_PPTP) += nf_conntrack_pptp.o
 obj-$(CONFIG_NF_CONNTRACK_SANE) += nf_conntrack_sane.o
 obj-$(CONFIG_NF_CONNTRACK_SIP) += nf_conntrack_sip.o
 obj-$(CONFIG_NF_CONNTRACK_TFTP) += nf_conntrack_tftp.o
+ifdef BCM_KF # defined(CONFIG_BCM_KF_NETFILTER)
+obj-$(CONFIG_NF_CONNTRACK_RTSP) += nf_conntrack_rtsp.o
+obj-$(CONFIG_NF_DYNDSCP) += nf_dyndscp.o
+obj-$(CONFIG_NF_CONNTRACK_IPSEC) += nf_conntrack_ipsec.o
+endif #BCM_KF # defined(CONFIG_BCM_KF_NETFILTER)
 
 # transparent proxy support
 obj-$(CONFIG_NETFILTER_TPROXY) += nf_tproxy_core.o
@@ -72,6 +84,10 @@ obj-$(CONFIG_NETFILTER_XT_TARGET_TCPOPTSTRIP) += xt_TCPOPTSTRIP.o
 obj-$(CONFIG_NETFILTER_XT_TARGET_TEE) += xt_TEE.o
 obj-$(CONFIG_NETFILTER_XT_TARGET_TRACE) += xt_TRACE.o
 obj-$(CONFIG_NETFILTER_XT_TARGET_IDLETIMER) += xt_IDLETIMER.o
+ifdef BCM_KF # defined(CONFIG_BCM_KF_NETFILTER)
+obj-$(CONFIG_NETFILTER_XT_TARGET_SKIPLOG) += xt_SKIPLOG.o
+obj-$(CONFIG_NETFILTER_XT_TARGET_DC)      += xt_DC.o
+endif #BCM_KF # defined(CONFIG_BCM_KF_NETFILTER)
 
 # matches
 obj-$(CONFIG_NETFILTER_XT_MATCH_ADDRTYPE) += xt_addrtype.o
@@ -101,7 +117,17 @@ obj-$(CONFIG_NETFILTER_XT_MATCH_OWNER) += xt_owner.o
 obj-$(CONFIG_NETFILTER_XT_MATCH_PHYSDEV) += xt_physdev.o
 obj-$(CONFIG_NETFILTER_XT_MATCH_PKTTYPE) += xt_pkttype.o
 obj-$(CONFIG_NETFILTER_XT_MATCH_POLICY) += xt_policy.o
+ifdef BCM_KF # defined(CONFIG_BCM_KF_ANDROID)
+ifneq ($(strip $(CONFIG_BCM_ANDROID)),)
+obj-$(CONFIG_NETFILTER_XT_MATCH_QTAGUID) += xt_qtaguid_print.o xt_qtaguid.o
+endif
+endif # BCM_KF # defined(CONFIG_BCM_KF_ANDROID)
 obj-$(CONFIG_NETFILTER_XT_MATCH_QUOTA) += xt_quota.o
+ifdef BCM_KF # defined(CONFIG_BCM_KF_ANDROID)
+ifneq ($(strip $(CONFIG_BCM_ANDROID)),)
+obj-$(CONFIG_NETFILTER_XT_MATCH_QUOTA2) += xt_quota2.o
+endif
+endif # BCM_KF # defined(CONFIG_BCM_KF_ANDROID)
 obj-$(CONFIG_NETFILTER_XT_MATCH_RATEEST) += xt_rateest.o
 obj-$(CONFIG_NETFILTER_XT_MATCH_REALM) += xt_realm.o
 obj-$(CONFIG_NETFILTER_XT_MATCH_RECENT) += xt_recent.o
@@ -113,6 +139,9 @@ obj-$(CONFIG_NETFILTER_XT_MATCH_STRING) += xt_string.o
 obj-$(CONFIG_NETFILTER_XT_MATCH_TCPMSS) += xt_tcpmss.o
 obj-$(CONFIG_NETFILTER_XT_MATCH_TIME) += xt_time.o
 obj-$(CONFIG_NETFILTER_XT_MATCH_U32) += xt_u32.o
+ifdef BCM_KF # defined(CONFIG_BCM_KF_NETFILTER)
+obj-$(CONFIG_NETFILTER_XT_MATCH_LAYER7) += xt_layer7.o
+endif #BCM_KF # defined(CONFIG_BCM_KF_NETFILTER)
 
 # ipset
 obj-$(CONFIG_IP_SET) += ipset/

@@ -96,6 +96,10 @@ source "drivers/memstick/Kconfig"
 
 source "drivers/leds/Kconfig"
 
+if BCM_KF_ANDROID
+source "drivers/switch/Kconfig"
+endif
+
 source "drivers/accessibility/Kconfig"
 
 source "drivers/infiniband/Kconfig"

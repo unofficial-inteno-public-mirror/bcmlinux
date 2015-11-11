@@ -27,6 +27,12 @@
 #include <net/checksum.h>
 #include <net/sock.h>
 
+#if ((defined(CONFIG_BCM_KF_RECVFILE) && defined(CONFIG_BCM_RECVFILE)) \
+     && (defined(CONFIG_BCM_KF_M2M_DMA) && defined(CONFIG_BCM_M2M_DMA)))
+#include <linux/bcm_m2mdma.h>
+#endif
+
+
 /*
  *	Verify iovec. The caller must ensure that the iovec is big enough
  *	to hold the message iovec.
@@ -123,6 +129,37 @@ int memcpy_toiovecend(const struct iovec *iov, unsigned char *kdata,
 	return 0;
 }
 EXPORT_SYMBOL(memcpy_toiovecend);
+
+#if defined(CONFIG_BCM_KF_RECVFILE) && defined(CONFIG_BCM_RECVFILE)
+/* This was removed in 2.6. Re-add it for splice from socket to file. */
+/*
+ *	In kernel copy to iovec. Returns -EFAULT on error.
+ *
+ *	Note: this modifies the original iovec.
+ */
+
+void memcpy_tokerneliovec(struct iovec *iov, unsigned char *kdata, int len,
+			unsigned int *dma_cookie)
+{
+	while(len>0)
+	{
+		if(iov->iov_len)
+		{
+			int copy = min_t(unsigned int, iov->iov_len, len);
+#if defined(CONFIG_BCM_KF_M2M_DMA) && defined(CONFIG_BCM_M2M_DMA)
+            *dma_cookie = bcm_m2m_dma_memcpy_async_no_flush(iov->iov_base, kdata, copy);
+#else
+            memcpy(iov->iov_base, kdata, copy);
+#endif
+			len -= copy;
+			kdata += copy;
+			iov->iov_base += copy;
+			iov->iov_len -= copy;
+		}
+		iov++;
+	}
+}
+#endif
 
 /*
  *	Copy iovec to kernel. Returns -EFAULT on error.

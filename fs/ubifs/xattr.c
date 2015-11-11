@@ -144,7 +144,6 @@ static int create_xattr(struct ubifs_info *c, struct inode *host,
 		goto out_free;
 	}
 	inode->i_size = ui->ui_size = size;
-	ui->data_len = size;
 
 	mutex_lock(&host_ui->ui_mutex);
 	host->i_ctime = ubifs_current_time(host);
@@ -152,6 +151,7 @@ static int create_xattr(struct ubifs_info *c, struct inode *host,
 	host_ui->xattr_size += CALC_DENT_SIZE(nm->len);
 	host_ui->xattr_size += CALC_XATTR_BYTES(size);
 	host_ui->xattr_names += nm->len;
+	ui->data_len = size;
 
 	err = ubifs_jnl_update(c, host, nm, inode, 0, 1);
 	if (err)

@@ -12,6 +12,15 @@ config USB_OTG_UTILS
 	  Select this to make sure the build includes objects from
 	  the OTG infrastructure directory.
 
+config USB_OTG_WAKELOCK
+	bool "Hold a wakelock when USB connected"
+	depends on WAKELOCK
+	depends on BCM_KF_ANDROID && BCM_ANDROID
+	select USB_OTG_UTILS
+	help
+	  Select this to automatically hold a wakelock when USB is
+	  connected, preventing suspend.
+
 if USB || USB_GADGET
 
 #

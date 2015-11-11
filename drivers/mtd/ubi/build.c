@@ -816,6 +816,13 @@ static int autoresize(struct ubi_device *ubi, int vol_id)
 	struct ubi_volume *vol = ubi->volumes[vol_id];
 	int err, old_reserved_pebs = vol->reserved_pebs;
 
+#if 1 //defined(CONFIG_BCM_KF_ANDROID) && defined(CONFIG_BCM_ANDROID)
+	if (ubi->ro_mode) {
+		ubi_warn("skip auto-resize because of R/O mode");
+		return 0;
+	}
+
+#endif
 	/*
 	 * Clear the auto-resize flag in the volume in-memory copy of the
 	 * volume table, and 'ubi_resize_volume()' will propagate this change

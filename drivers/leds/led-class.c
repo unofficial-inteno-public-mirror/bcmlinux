@@ -185,8 +185,13 @@ int led_classdev_register(struct device *parent, struct led_classdev *led_cdev)
 	led_trigger_set_default(led_cdev);
 #endif
 
+#if defined(CONFIG_BCM_KF_LEDS)
+	dev_dbg(parent, "Registered led device: %s\n",
+			led_cdev->name);
+#else
 	printk(KERN_DEBUG "Registered led device: %s\n",
 			led_cdev->name);
+#endif //CONFIG_BCM_KF_LEDS
 
 	return 0;
 }
