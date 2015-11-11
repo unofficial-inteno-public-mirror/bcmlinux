@@ -4,11 +4,12 @@
 #include <linux/seq_file.h>
 
 /* Command line args run-time added by Broadcom drivers */
-extern char board_command_line[];
+//extern char board_command_line[];
 
 static int cmdline_proc_show(struct seq_file *m, void *v)
 {
-	seq_printf(m, "%s %s\n", saved_command_line, board_command_line);
+//	seq_printf(m, "%s %s\n", saved_command_line, board_command_line);
+	seq_printf(m, "%s\n", saved_command_line);
 	return 0;
 }
 
