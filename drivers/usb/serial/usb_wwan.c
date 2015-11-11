@@ -41,7 +41,9 @@ static bool debug;
 
 void usb_wwan_dtr_rts(struct usb_serial_port *port, int on)
 {
+#if !defined(CONFIG_BCM_KF_ANDROID) || !defined(CONFIG_BCM_ANDROID)
 	struct usb_serial *serial = port->serial;
+#endif
 	struct usb_wwan_port_private *portdata;
 
 	struct usb_wwan_intf_private *intfdata;
@@ -54,12 +56,21 @@ void usb_wwan_dtr_rts(struct usb_serial_port *port, int on)
 		return;
 
 	portdata = usb_get_serial_port_data(port);
+#if !defined(CONFIG_BCM_KF_ANDROID) || !defined(CONFIG_BCM_ANDROID)
 	mutex_lock(&serial->disc_mutex);
+#else
+	/* FIXME: locking */
+#endif
 	portdata->rts_state = on;
 	portdata->dtr_state = on;
+#if !defined(CONFIG_BCM_KF_ANDROID) || !defined(CONFIG_BCM_ANDROID)
 	if (serial->dev)
 		intfdata->send_setup(port);
 	mutex_unlock(&serial->disc_mutex);
+#else
+
+	intfdata->send_setup(port);
+#endif
 }
 EXPORT_SYMBOL(usb_wwan_dtr_rts);
 

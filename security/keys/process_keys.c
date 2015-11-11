@@ -54,7 +54,11 @@ int install_user_keyrings(void)
 
 	kenter("%p{%u}", user, user->uid);
 
+#if !defined(CONFIG_BCM_KF_ANDROID) || !defined(CONFIG_BCM_ANDROID)
 	if (user->uid_keyring) {
+#else
+	if (user->uid_keyring && user->session_keyring) {
+#endif
 		kleave(" = 0 [exist]");
 		return 0;
 	}

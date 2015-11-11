@@ -45,10 +45,21 @@ static cputime64_t get_iowait_time(int cpu)
 
 static u64 get_idle_time(int cpu)
 {
+#if !defined(CONFIG_BCM_KF_ANDROID) || !defined(CONFIG_BCM_ANDROID)
 	u64 idle, idle_time = get_cpu_idle_time_us(cpu, NULL);
+#else
+	u64 idle, idle_time = -1ULL;
+
+	if (cpu_online(cpu))
+		idle_time = get_cpu_idle_time_us(cpu, NULL);
+#endif
 
 	if (idle_time == -1ULL)
+#if !defined(CONFIG_BCM_KF_ANDROID) || !defined(CONFIG_BCM_ANDROID)
 		/* !NO_HZ so we can rely on cpustat.idle */
+#else
+		/* !NO_HZ or cpu offline so we can rely on cpustat.idle */
+#endif
 		idle = kcpustat_cpu(cpu).cpustat[CPUTIME_IDLE];
 	else
 		idle = usecs_to_cputime64(idle_time);
@@ -58,10 +69,21 @@ static u64 get_idle_time(int cpu)
 
 static u64 get_iowait_time(int cpu)
 {
+#if !defined(CONFIG_BCM_KF_ANDROID) || !defined(CONFIG_BCM_ANDROID)
 	u64 iowait, iowait_time = get_cpu_iowait_time_us(cpu, NULL);
+#else
+	u64 iowait, iowait_time = -1ULL;
+
+	if (cpu_online(cpu))
+		iowait_time = get_cpu_iowait_time_us(cpu, NULL);
+#endif
 
 	if (iowait_time == -1ULL)
+#if !defined(CONFIG_BCM_KF_ANDROID) || !defined(CONFIG_BCM_ANDROID)
 		/* !NO_HZ so we can rely on cpustat.iowait */
+#else
+		/* !NO_HZ or cpu offline so we can rely on cpustat.iowait */
+#endif
 		iowait = kcpustat_cpu(cpu).cpustat[CPUTIME_IOWAIT];
 	else
 		iowait = usecs_to_cputime64(iowait_time);

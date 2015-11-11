@@ -721,11 +721,20 @@ int scsi_verify_blk_ioctl(struct block_device *bd, unsigned int cmd)
 		break;
 	}
 
+#if defined(CONFIG_BCM_KF_ANDROID) && defined(CONFIG_BCM_ANDROID)
+	if (capable(CAP_SYS_RAWIO))
+		return 0;
+
+#endif
 	/* In particular, rule out all resets and host-specific ioctls.  */
 	printk_ratelimited(KERN_WARNING
 			   "%s: sending ioctl %x to a partition!\n", current->comm, cmd);
 
+#if !defined(CONFIG_BCM_KF_ANDROID) || !defined(CONFIG_BCM_ANDROID)
 	return capable(CAP_SYS_RAWIO) ? 0 : -ENOIOCTLCMD;
+#else
+	return -ENOIOCTLCMD;
+#endif
 }
 EXPORT_SYMBOL(scsi_verify_blk_ioctl);
 

@@ -1103,7 +1103,11 @@ static int nfs_lookup_revalidate(struct dentry *dentry, struct nameidata *nd)
 	struct nfs_fattr *fattr = NULL;
 	int error;
 
+#if !defined(CONFIG_BCM_KF_ANDROID) || !defined(CONFIG_BCM_ANDROID)
 	if (nd->flags & LOOKUP_RCU)
+#else
+	if (nd && (nd->flags & LOOKUP_RCU))
+#endif
 		return -ECHILD;
 
 	parent = dget_parent(dentry);
@@ -1219,11 +1223,21 @@ static int nfs_dentry_delete(const struct dentry *dentry)
 
 }
 
+#if defined(CONFIG_BCM_KF_ANDROID) && defined(CONFIG_BCM_ANDROID)
+/* Ensure that we revalidate inode->i_nlink */
+#endif
 static void nfs_drop_nlink(struct inode *inode)
 {
 	spin_lock(&inode->i_lock);
+#if !defined(CONFIG_BCM_KF_ANDROID) || !defined(CONFIG_BCM_ANDROID)
 	if (inode->i_nlink > 0)
 		drop_nlink(inode);
+#else
+	/* drop the inode if we're reasonably sure this is the last link */
+	if (inode->i_nlink == 1)
+		clear_nlink(inode);
+	NFS_I(inode)->cache_validity |= NFS_INO_INVALID_ATTR;
+#endif
 	spin_unlock(&inode->i_lock);
 }
 
@@ -1238,8 +1252,13 @@ static void nfs_dentry_iput(struct dentry *dentry, struct inode *inode)
 		NFS_I(inode)->cache_validity |= NFS_INO_INVALID_DATA;
 
 	if (dentry->d_flags & DCACHE_NFSFS_RENAMED) {
+#if !defined(CONFIG_BCM_KF_ANDROID) || !defined(CONFIG_BCM_ANDROID)
 		drop_nlink(inode);
+#endif
 		nfs_complete_unlink(dentry, inode);
+#if defined(CONFIG_BCM_KF_ANDROID) && defined(CONFIG_BCM_ANDROID)
+		nfs_drop_nlink(inode);
+#endif
 	}
 	iput(inode);
 }
@@ -1502,7 +1521,11 @@ static int nfs_open_revalidate(struct dentry *dentry, struct nameidata *nd)
 	struct iattr attr;
 	int openflags, ret = 0;
 
+#if !defined(CONFIG_BCM_KF_ANDROID) || !defined(CONFIG_BCM_ANDROID)
 	if (nd->flags & LOOKUP_RCU)
+#else
+	if (nd && (nd->flags & LOOKUP_RCU))
+#endif
 		return -ECHILD;
 
 	inode = dentry->d_inode;
@@ -1800,10 +1823,14 @@ static int nfs_safe_remove(struct dentry *dentry)
 	if (inode != NULL) {
 		nfs_inode_return_delegation(inode);
 		error = NFS_PROTO(dir)->remove(dir, &dentry->d_name);
+#if !defined(CONFIG_BCM_KF_ANDROID) || !defined(CONFIG_BCM_ANDROID)
 		/* The VFS may want to delete this inode */
+#endif
 		if (error == 0)
 			nfs_drop_nlink(inode);
+#if !defined(CONFIG_BCM_KF_ANDROID) || !defined(CONFIG_BCM_ANDROID)
 		nfs_mark_for_revalidate(inode);
+#endif
 	} else
 		error = NFS_PROTO(dir)->remove(dir, &dentry->d_name);
 	if (error == -ENOENT)

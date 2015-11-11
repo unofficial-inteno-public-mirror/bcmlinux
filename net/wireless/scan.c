@@ -18,7 +18,11 @@
 #include "nl80211.h"
 #include "wext-compat.h"
 
+#if !defined(CONFIG_BCM_KF_ANDROID) || !defined(CONFIG_BCM_ANDROID)
 #define IEEE80211_SCAN_RESULT_EXPIRE	(15 * HZ)
+#else
+#define IEEE80211_SCAN_RESULT_EXPIRE	(3 * HZ)
+#endif
 
 void ___cfg80211_scan_done(struct cfg80211_registered_device *rdev, bool leak)
 {

@@ -1313,6 +1313,9 @@ irqreturn_t cppi_interrupt(int irq, void *dev_id)
 
 	return IRQ_HANDLED;
 }
+#if defined(CONFIG_BCM_KF_ANDROID) && defined(CONFIG_BCM_ANDROID)
+EXPORT_SYMBOL_GPL(cppi_interrupt);
+#endif
 
 /* Instantiate a software object representing a DMA controller. */
 struct dma_controller *__init

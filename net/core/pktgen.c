@@ -1802,10 +1802,22 @@ static ssize_t pktgen_thread_write(struct file *file,
 			return -EFAULT;
 		i += len;
 		mutex_lock(&pktgen_thread_lock);
+#if !defined(CONFIG_BCM_KF_ANDROID) || !defined(CONFIG_BCM_ANDROID)
 		pktgen_add_device(t, f);
+#else
+		ret = pktgen_add_device(t, f);
+#endif
 		mutex_unlock(&pktgen_thread_lock);
+#if !defined(CONFIG_BCM_KF_ANDROID) || !defined(CONFIG_BCM_ANDROID)
 		ret = count;
 		sprintf(pg_result, "OK: add_device=%s", f);
+#else
+		if (!ret) {
+			ret = count;
+			sprintf(pg_result, "OK: add_device=%s", f);
+		} else
+			sprintf(pg_result, "ERROR: can not add device %s", f);
+#endif
 		goto out;
 	}
 
@@ -2932,7 +2944,11 @@ static struct sk_buff *fill_packet_ipv6(struct net_device *odev,
 		  sizeof(struct ipv6hdr) - sizeof(struct udphdr) -
 		  pkt_dev->pkt_overhead;
 
+#if !defined(CONFIG_BCM_KF_ANDROID) || !defined(CONFIG_BCM_ANDROID)
 	if (datalen < sizeof(struct pktgen_hdr)) {
+#else
+	if (datalen < 0 || datalen < sizeof(struct pktgen_hdr)) {
+#endif
 		datalen = sizeof(struct pktgen_hdr);
 		if (net_ratelimit())
 			pr_info("increased datalen to %d\n", datalen);

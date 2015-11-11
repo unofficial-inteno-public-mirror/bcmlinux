@@ -121,7 +121,11 @@ static int parse_ofoldpart_partitions(struct mtd_info *master,
 	nr_parts = plen / sizeof(part[0]);
 
 	*pparts = kzalloc(nr_parts * sizeof(*(*pparts)), GFP_KERNEL);
+#if !defined(CONFIG_BCM_KF_ANDROID) || !defined(CONFIG_BCM_ANDROID)
 	if (!pparts)
+#else
+	if (!*pparts)
+#endif
 		return -ENOMEM;
 
 	names = of_get_property(dp, "partition-names", &plen);

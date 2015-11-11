@@ -734,6 +734,9 @@ int usb_add_config(struct usb_composite_dev *cdev,
 
 	INIT_LIST_HEAD(&config->functions);
 	config->next_interface_id = 0;
+#if defined(CONFIG_BCM_KF_ANDROID) && defined(CONFIG_BCM_ANDROID)
+	memset(config->interface, 0, sizeof(config->interface));
+#endif
 
 	status = bind(config);
 	if (status < 0) {
@@ -774,6 +777,57 @@ done:
 	return status;
 }
 
+#if defined(CONFIG_BCM_KF_ANDROID) && defined(CONFIG_BCM_ANDROID)
+static int unbind_config(struct usb_composite_dev *cdev,
+			      struct usb_configuration *config)
+{
+	while (!list_empty(&config->functions)) {
+		struct usb_function		*f;
+
+		f = list_first_entry(&config->functions,
+				struct usb_function, list);
+		list_del(&f->list);
+		if (f->unbind) {
+			DBG(cdev, "unbind function '%s'/%p\n", f->name, f);
+			f->unbind(config, f);
+			/* may free memory for "f" */
+		}
+	}
+	if (config->unbind) {
+		DBG(cdev, "unbind config '%s'/%p\n", config->label, config);
+		config->unbind(config);
+			/* may free memory for "c" */
+	}
+	return 0;
+}
+
+/**
+ * usb_remove_config() - remove a configuration from a device.
+ * @cdev: wraps the USB gadget
+ * @config: the configuration
+ *
+ * Drivers must call usb_gadget_disconnect before calling this function
+ * to disconnect the device from the host and make sure the host will not
+ * try to enumerate the device while we are changing the config list.
+ */
+int usb_remove_config(struct usb_composite_dev *cdev,
+		      struct usb_configuration *config)
+{
+	unsigned long flags;
+
+	spin_lock_irqsave(&cdev->lock, flags);
+
+	if (cdev->config == config)
+		reset_config(cdev);
+
+	list_del(&config->list);
+
+	spin_unlock_irqrestore(&cdev->lock, flags);
+
+	return unbind_config(cdev, config);
+}
+
+#endif
 /*-------------------------------------------------------------------------*/
 
 /* We support strings in multiple languages ... string descriptor zero
@@ -1328,9 +1382,12 @@ composite_unbind(struct usb_gadget *gadget)
 
 	while (!list_empty(&cdev->configs)) {
 		struct usb_configuration	*c;
+#if !defined(CONFIG_BCM_KF_ANDROID) || !defined(CONFIG_BCM_ANDROID)
 
+#endif
 		c = list_first_entry(&cdev->configs,
 				struct usb_configuration, list);
+#if !defined(CONFIG_BCM_KF_ANDROID) || !defined(CONFIG_BCM_ANDROID)
 		while (!list_empty(&c->functions)) {
 			struct usb_function		*f;
 
@@ -1344,12 +1401,17 @@ composite_unbind(struct usb_gadget *gadget)
 				/* may free memory for "f" */
 			}
 		}
+#endif
 		list_del(&c->list);
+#if !defined(CONFIG_BCM_KF_ANDROID) || !defined(CONFIG_BCM_ANDROID)
 		if (c->unbind) {
 			DBG(cdev, "unbind config '%s'/%p\n", c->label, c);
 			c->unbind(c);
 			/* may free memory for "c" */
 		}
+#else
+		unbind_config(cdev, c);
+#endif
 	}
 	if (composite->unbind)
 		composite->unbind(cdev);

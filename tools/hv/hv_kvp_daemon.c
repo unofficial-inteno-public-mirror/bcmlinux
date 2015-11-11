@@ -106,7 +106,11 @@ static void kvp_acquire_lock(int pool)
 
 	if (fcntl(kvp_file_info[pool].fd, F_SETLKW, &fl) == -1) {
 		syslog(LOG_ERR, "Failed to acquire the lock pool: %d", pool);
+#if !defined(CONFIG_BCM_KF_ANDROID) || !defined(CONFIG_BCM_ANDROID)
 		exit(-1);
+#else
+		exit(EXIT_FAILURE);
+#endif
 	}
 }
 
@@ -118,7 +122,11 @@ static void kvp_release_lock(int pool)
 	if (fcntl(kvp_file_info[pool].fd, F_SETLK, &fl) == -1) {
 		perror("fcntl");
 		syslog(LOG_ERR, "Failed to release the lock pool: %d", pool);
+#if !defined(CONFIG_BCM_KF_ANDROID) || !defined(CONFIG_BCM_ANDROID)
 		exit(-1);
+#else
+		exit(EXIT_FAILURE);
+#endif
 	}
 }
 
@@ -137,14 +145,27 @@ static void kvp_update_file(int pool)
 	if (!filep) {
 		kvp_release_lock(pool);
 		syslog(LOG_ERR, "Failed to open file, pool: %d", pool);
+#if !defined(CONFIG_BCM_KF_ANDROID) || !defined(CONFIG_BCM_ANDROID)
 		exit(-1);
+#else
+		exit(EXIT_FAILURE);
+#endif
 	}
 
 	bytes_written = fwrite(kvp_file_info[pool].records,
 				sizeof(struct kvp_record),
 				kvp_file_info[pool].num_records, filep);
 
+#if !defined(CONFIG_BCM_KF_ANDROID) || !defined(CONFIG_BCM_ANDROID)
 	fflush(filep);
+#else
+	if (ferror(filep) || fclose(filep)) {
+		kvp_release_lock(pool);
+		syslog(LOG_ERR, "Failed to write file, pool: %d", pool);
+		exit(EXIT_FAILURE);
+	}
+
+#endif
 	kvp_release_lock(pool);
 }
 
@@ -163,14 +184,29 @@ static void kvp_update_mem_state(int pool)
 	if (!filep) {
 		kvp_release_lock(pool);
 		syslog(LOG_ERR, "Failed to open file, pool: %d", pool);
+#if !defined(CONFIG_BCM_KF_ANDROID) || !defined(CONFIG_BCM_ANDROID)
 		exit(-1);
+#else
+		exit(EXIT_FAILURE);
+#endif
 	}
+#if !defined(CONFIG_BCM_KF_ANDROID) || !defined(CONFIG_BCM_ANDROID)
 	while (!feof(filep)) {
+#else
+	for (;;) {
+#endif
 		readp = &record[records_read];
 		records_read += fread(readp, sizeof(struct kvp_record),
 					ENTRIES_PER_BLOCK * num_blocks,
 					filep);
 
+#if defined(CONFIG_BCM_KF_ANDROID) && defined(CONFIG_BCM_ANDROID)
+		if (ferror(filep)) {
+			syslog(LOG_ERR, "Failed to read file, pool: %d", pool);
+			exit(EXIT_FAILURE);
+		}
+
+#endif
 		if (!feof(filep)) {
 			/*
 			 * We have more data to read.
@@ -180,7 +216,11 @@ static void kvp_update_mem_state(int pool)
 
 			if (record == NULL) {
 				syslog(LOG_ERR, "malloc failed");
+#if !defined(CONFIG_BCM_KF_ANDROID) || !defined(CONFIG_BCM_ANDROID)
 				exit(-1);
+#else
+				exit(EXIT_FAILURE);
+#endif
 			}
 			continue;
 		}
@@ -191,6 +231,9 @@ static void kvp_update_mem_state(int pool)
 	kvp_file_info[pool].records = record;
 	kvp_file_info[pool].num_records = records_read;
 
+#if defined(CONFIG_BCM_KF_ANDROID) && defined(CONFIG_BCM_ANDROID)
+	fclose(filep);
+#endif
 	kvp_release_lock(pool);
 }
 static int kvp_file_init(void)
@@ -208,7 +251,11 @@ static int kvp_file_init(void)
 	if (access("/var/opt/hyperv", F_OK)) {
 		if (mkdir("/var/opt/hyperv", S_IRUSR | S_IWUSR | S_IROTH)) {
 			syslog(LOG_ERR, " Failed to create /var/opt/hyperv");
+#if !defined(CONFIG_BCM_KF_ANDROID) || !defined(CONFIG_BCM_ANDROID)
 			exit(-1);
+#else
+			exit(EXIT_FAILURE);
+#endif
 		}
 	}
 
@@ -232,12 +279,24 @@ static int kvp_file_init(void)
 			fclose(filep);
 			return 1;
 		}
+#if !defined(CONFIG_BCM_KF_ANDROID) || !defined(CONFIG_BCM_ANDROID)
 		while (!feof(filep)) {
+#else
+		for (;;) {
+#endif
 			readp = &record[records_read];
 			records_read += fread(readp, sizeof(struct kvp_record),
 					ENTRIES_PER_BLOCK,
 					filep);
 
+#if defined(CONFIG_BCM_KF_ANDROID) && defined(CONFIG_BCM_ANDROID)
+			if (ferror(filep)) {
+				syslog(LOG_ERR, "Failed to read file, pool: %d",
+				       i);
+				exit(EXIT_FAILURE);
+			}
+
+#endif
 			if (!feof(filep)) {
 				/*
 				 * We have more data to read.
@@ -657,13 +716,21 @@ int main(void)
 
 	if (kvp_file_init()) {
 		syslog(LOG_ERR, "Failed to initialize the pools");
+#if !defined(CONFIG_BCM_KF_ANDROID) || !defined(CONFIG_BCM_ANDROID)
 		exit(-1);
+#else
+		exit(EXIT_FAILURE);
+#endif
 	}
 
 	fd = socket(AF_NETLINK, SOCK_DGRAM, NETLINK_CONNECTOR);
 	if (fd < 0) {
 		syslog(LOG_ERR, "netlink socket creation failed; error:%d", fd);
+#if !defined(CONFIG_BCM_KF_ANDROID) || !defined(CONFIG_BCM_ANDROID)
 		exit(-1);
+#else
+		exit(EXIT_FAILURE);
+#endif
 	}
 	addr.nl_family = AF_NETLINK;
 	addr.nl_pad = 0;
@@ -675,7 +742,11 @@ int main(void)
 	if (error < 0) {
 		syslog(LOG_ERR, "bind failed; error:%d", error);
 		close(fd);
+#if !defined(CONFIG_BCM_KF_ANDROID) || !defined(CONFIG_BCM_ANDROID)
 		exit(-1);
+#else
+		exit(EXIT_FAILURE);
+#endif
 	}
 	sock_opt = addr.nl_groups;
 	setsockopt(fd, 270, 1, &sock_opt, sizeof(sock_opt));
@@ -695,7 +766,11 @@ int main(void)
 	if (len < 0) {
 		syslog(LOG_ERR, "netlink_send failed; error:%d", len);
 		close(fd);
+#if !defined(CONFIG_BCM_KF_ANDROID) || !defined(CONFIG_BCM_ANDROID)
 		exit(-1);
+#else
+		exit(EXIT_FAILURE);
+#endif
 	}
 
 	pfd.fd = fd;
@@ -710,13 +785,25 @@ int main(void)
 		len = recvfrom(fd, kvp_recv_buffer, sizeof(kvp_recv_buffer), 0,
 				addr_p, &addr_l);
 
+#if !defined(CONFIG_BCM_KF_ANDROID) || !defined(CONFIG_BCM_ANDROID)
 		if (len < 0 || addr.nl_pid) {
+#else
+		if (len < 0) {
+#endif
 			syslog(LOG_ERR, "recvfrom failed; pid:%u error:%d %s",
 					addr.nl_pid, errno, strerror(errno));
 			close(fd);
 			return -1;
 		}
 
+#if defined(CONFIG_BCM_KF_ANDROID) && defined(CONFIG_BCM_ANDROID)
+		if (addr.nl_pid) {
+			syslog(LOG_WARNING, "Received packet from untrusted pid:%u",
+					addr.nl_pid);
+			continue;
+		}
+
+#endif
 		incoming_msg = (struct nlmsghdr *)kvp_recv_buffer;
 		incoming_cn_msg = (struct cn_msg *)NLMSG_DATA(incoming_msg);
 		hv_msg = (struct hv_kvp_msg *)incoming_cn_msg->data;
@@ -863,7 +950,11 @@ kvp_done:
 		len = netlink_send(fd, incoming_cn_msg);
 		if (len < 0) {
 			syslog(LOG_ERR, "net_link send failed; error:%d", len);
+#if !defined(CONFIG_BCM_KF_ANDROID) || !defined(CONFIG_BCM_ANDROID)
 			exit(-1);
+#else
+			exit(EXIT_FAILURE);
+#endif
 		}
 	}
 

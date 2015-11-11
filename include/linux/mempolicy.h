@@ -137,6 +137,7 @@ static inline void mpol_cond_put(struct mempolicy *pol)
 		__mpol_put(pol);
 }
 
+#if !defined(CONFIG_BCM_KF_ANDROID) || !defined(CONFIG_BCM_ANDROID)
 extern struct mempolicy *__mpol_cond_copy(struct mempolicy *tompol,
 					  struct mempolicy *frompol);
 static inline struct mempolicy *mpol_cond_copy(struct mempolicy *tompol,
@@ -147,6 +148,7 @@ static inline struct mempolicy *mpol_cond_copy(struct mempolicy *tompol,
 	return __mpol_cond_copy(tompol, frompol);
 }
 
+#endif
 extern struct mempolicy *__mpol_dup(struct mempolicy *pol);
 static inline struct mempolicy *mpol_dup(struct mempolicy *pol)
 {
@@ -188,7 +190,11 @@ struct sp_node {
 
 struct shared_policy {
 	struct rb_root root;
+#if !defined(CONFIG_BCM_KF_ANDROID) || !defined(CONFIG_BCM_ANDROID)
 	spinlock_t lock;
+#else
+	struct mutex mutex;
+#endif
 };
 
 void mpol_shared_policy_init(struct shared_policy *sp, struct mempolicy *mpol);
@@ -270,12 +276,14 @@ static inline void mpol_cond_put(struct mempolicy *pol)
 {
 }
 
+#if !defined(CONFIG_BCM_KF_ANDROID) || !defined(CONFIG_BCM_ANDROID)
 static inline struct mempolicy *mpol_cond_copy(struct mempolicy *to,
 						struct mempolicy *from)
 {
 	return from;
 }
 
+#endif
 static inline void mpol_get(struct mempolicy *pol)
 {
 }

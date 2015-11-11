@@ -2400,10 +2400,14 @@ static int __init musb_init(void)
 	if (usb_disabled())
 		return 0;
 
+#if !defined(CONFIG_BCM_KF_ANDROID) || !defined(CONFIG_BCM_ANDROID)
 	pr_info("%s: version " MUSB_VERSION ", "
 		"?dma?"
 		", "
 		"otg (peripheral+host)",
+#else
+	pr_info("%s: version " MUSB_VERSION ", ?dma?, otg (peripheral+host)\n",
+#endif
 		musb_driver_name);
 	return platform_driver_register(&musb_driver);
 }

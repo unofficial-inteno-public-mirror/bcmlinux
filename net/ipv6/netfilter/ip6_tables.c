@@ -2329,9 +2329,20 @@ int ipv6_find_hdr(const struct sk_buff *skb, unsigned int *offset,
 				if (target < 0 &&
 				    ((!ipv6_ext_hdr(hp->nexthdr)) ||
 				     hp->nexthdr == NEXTHDR_NONE)) {
+#if !defined(CONFIG_BCM_KF_ANDROID) || !defined(CONFIG_BCM_ANDROID)
 					if (fragoff)
+#else
+					if (fragoff) {
+#endif
 						*fragoff = _frag_off;
+#if !defined(CONFIG_BCM_KF_ANDROID) || !defined(CONFIG_BCM_ANDROID)
 					return hp->nexthdr;
+#else
+						return hp->nexthdr;
+					} else {
+						return -EINVAL;
+					}
+#endif
 				}
 				return -ENOENT;
 			}

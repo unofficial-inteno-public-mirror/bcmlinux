@@ -10,6 +10,10 @@
 #include <linux/export.h>
 #include <linux/init.h>
 #include <linux/device.h>
+#if defined(CONFIG_BCM_KF_ANDROID) && defined(CONFIG_BCM_ANDROID)
+#include <linux/notifier.h>
+#include <linux/cpu.h>
+#endif
 #include <linux/syscore_ops.h>
 #include <linux/string.h>
 
@@ -103,6 +107,27 @@ static struct syscore_ops leds_syscore_ops = {
 	.resume		= leds_resume,
 };
 
+#if defined(CONFIG_BCM_KF_ANDROID) && defined(CONFIG_BCM_ANDROID)
+static int leds_idle_notifier(struct notifier_block *nb, unsigned long val,
+                                void *data)
+{
+	switch (val) {
+	case IDLE_START:
+		leds_event(led_idle_start);
+		break;
+	case IDLE_END:
+		leds_event(led_idle_end);
+		break;
+	}
+
+	return 0;
+}
+
+static struct notifier_block leds_idle_nb = {
+	.notifier_call = leds_idle_notifier,
+};
+
+#endif
 static int __init leds_init(void)
 {
 	int ret;
@@ -111,8 +136,17 @@ static int __init leds_init(void)
 		ret = device_register(&leds_device);
 	if (ret == 0)
 		ret = device_create_file(&leds_device, &dev_attr_event);
+#if !defined(CONFIG_BCM_KF_ANDROID) || !defined(CONFIG_BCM_ANDROID)
 	if (ret == 0)
+#else
+	if (ret == 0) {
+#endif
 		register_syscore_ops(&leds_syscore_ops);
+#if defined(CONFIG_BCM_KF_ANDROID) && defined(CONFIG_BCM_ANDROID)
+		idle_notifier_register(&leds_idle_nb);
+	}
+
+#endif
 	return ret;
 }
 

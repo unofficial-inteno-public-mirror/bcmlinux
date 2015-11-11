@@ -4,6 +4,9 @@
 #include <linux/list.h>
 #include <linux/spinlock.h>
 #include <linux/mm_types.h>
+#if defined(CONFIG_BCM_KF_ANDROID) && defined(CONFIG_BCM_ANDROID)
+#include <linux/srcu.h>
+#endif
 
 struct mmu_notifier;
 struct mmu_notifier_ops;

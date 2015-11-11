@@ -86,6 +86,15 @@ static async_cookie_t  __lowest_in_progress(struct list_head *running)
 {
 	struct async_entry *entry;
 
+#if defined(CONFIG_BCM_KF_ANDROID) && defined(CONFIG_BCM_ANDROID)
+	if (!running) { /* just check the entry count */
+		if (atomic_read(&entry_count))
+			return 0; /* smaller than any cookie */
+		else
+			return next_cookie;
+	}
+
+#endif
 	if (!list_empty(running)) {
 		entry = list_first_entry(running,
 			struct async_entry, list);
@@ -236,9 +245,13 @@ EXPORT_SYMBOL_GPL(async_schedule_domain);
  */
 void async_synchronize_full(void)
 {
+#if !defined(CONFIG_BCM_KF_ANDROID) || !defined(CONFIG_BCM_ANDROID)
 	do {
 		async_synchronize_cookie(next_cookie);
 	} while (!list_empty(&async_running) || !list_empty(&async_pending));
+#else
+	async_synchronize_cookie_domain(next_cookie, NULL);
+#endif
 }
 EXPORT_SYMBOL_GPL(async_synchronize_full);
 

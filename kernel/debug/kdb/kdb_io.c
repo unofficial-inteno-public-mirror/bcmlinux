@@ -216,7 +216,11 @@ static char *kdb_read(char *buffer, size_t bufsize)
 	int i;
 	int diag, dtab_count;
 	int key;
+#if !defined(CONFIG_BCM_KF_ANDROID) || !defined(CONFIG_BCM_ANDROID)
 
+#else
+	static int last_crlf;
+#endif
 
 	diag = kdbgetintenv("DTABCOUNT", &dtab_count);
 	if (diag)
@@ -237,6 +241,11 @@ poll_again:
 		return buffer;
 	if (key != 9)
 		tab = 0;
+#if defined(CONFIG_BCM_KF_ANDROID) && defined(CONFIG_BCM_ANDROID)
+	if (key != 10 && key != 13)
+		last_crlf = 0;
+
+#endif
 	switch (key) {
 	case 8: /* backspace */
 		if (cp > buffer) {
@@ -254,7 +263,16 @@ poll_again:
 			*cp = tmp;
 		}
 		break;
+#if !defined(CONFIG_BCM_KF_ANDROID) || !defined(CONFIG_BCM_ANDROID)
 	case 13: /* enter */
+#else
+	case 10: /* new line */
+	case 13: /* carriage return */
+		/* handle \n after \r */
+		if (last_crlf && last_crlf != key)
+			break;
+		last_crlf = key;
+#endif
 		*lastchar++ = '\n';
 		*lastchar++ = '\0';
 		if (!KDB_STATE(KGDB_TRANS)) {
@@ -552,6 +570,9 @@ int vkdb_printf(const char *fmt, va_list ap)
 {
 	int diag;
 	int linecount;
+#if defined(CONFIG_BCM_KF_ANDROID) && defined(CONFIG_BCM_ANDROID)
+	int colcount;
+#endif
 	int logging, saved_loglevel = 0;
 	int got_printf_lock = 0;
 	int retlen = 0;
@@ -581,6 +602,12 @@ int vkdb_printf(const char *fmt, va_list ap)
 	if (diag || linecount <= 1)
 		linecount = 24;
 
+#if defined(CONFIG_BCM_KF_ANDROID) && defined(CONFIG_BCM_ANDROID)
+	diag = kdbgetintenv("COLUMNS", &colcount);
+	if (diag || colcount <= 1)
+		colcount = 80;
+
+#endif
 	diag = kdbgetintenv("LOGGING", &logging);
 	if (diag)
 		logging = 0;
@@ -687,7 +714,11 @@ kdb_printit:
 		gdbstub_msg_write(kdb_buffer, retlen);
 	} else {
 		if (dbg_io_ops && !dbg_io_ops->is_console) {
+#if !defined(CONFIG_BCM_KF_ANDROID) || !defined(CONFIG_BCM_ANDROID)
 			len = strlen(kdb_buffer);
+#else
+			len = retlen;
+#endif
 			cp = kdb_buffer;
 			while (len--) {
 				dbg_io_ops->write_char(*cp);
@@ -706,11 +737,38 @@ kdb_printit:
 		printk(KERN_INFO "%s", kdb_buffer);
 	}
 
+#if !defined(CONFIG_BCM_KF_ANDROID) || !defined(CONFIG_BCM_ANDROID)
 	if (KDB_STATE(PAGER) && strchr(kdb_buffer, '\n'))
 		kdb_nextline++;
+#else
+	if (KDB_STATE(PAGER)) {
+		/*
+		 * Check printed string to decide how to bump the
+		 * kdb_nextline to control when the more prompt should
+		 * show up.
+		 */
+		int got = 0;
+		len = retlen;
+		while (len--) {
+			if (kdb_buffer[len] == '\n') {
+				kdb_nextline++;
+				got = 0;
+			} else if (kdb_buffer[len] == '\r') {
+				got = 0;
+			} else {
+				got++;
+			}
+		}
+		kdb_nextline += got / (colcount + 1);
+	}
+#endif
 
 	/* check for having reached the LINES number of printed lines */
+#if !defined(CONFIG_BCM_KF_ANDROID) || !defined(CONFIG_BCM_ANDROID)
 	if (kdb_nextline == linecount) {
+#else
+	if (kdb_nextline >= linecount) {
+#endif
 		char buf1[16] = "";
 #if defined(CONFIG_SMP)
 		char buf2[32];
@@ -773,7 +831,11 @@ kdb_printit:
 			kdb_grepping_flag = 0;
 			kdb_printf("\n");
 		} else if (buf1[0] == ' ') {
+#if !defined(CONFIG_BCM_KF_ANDROID) || !defined(CONFIG_BCM_ANDROID)
 			kdb_printf("\n");
+#else
+			kdb_printf("\r");
+#endif
 			suspend_grep = 1; /* for this recursion */
 		} else if (buf1[0] == '\n') {
 			kdb_nextline = linecount - 1;

@@ -19,6 +19,12 @@
 #include <linux/slab.h>
 #include <linux/module.h>
 
+#if defined(CONFIG_BCM_KF_ANDROID) && defined(CONFIG_BCM_ANDROID)
+static struct device_type mfd_dev_type = {
+	.name	= "mfd_device",
+};
+
+#endif
 int mfd_cell_enable(struct platform_device *pdev)
 {
 	const struct mfd_cell *cell = mfd_get_cell(pdev);
@@ -88,6 +94,9 @@ static int mfd_add_device(struct device *parent, int id,
 		goto fail_device;
 
 	pdev->dev.parent = parent;
+#if defined(CONFIG_BCM_KF_ANDROID) && defined(CONFIG_BCM_ANDROID)
+	pdev->dev.type = &mfd_dev_type;
+#endif
 
 	if (cell->pdata_size) {
 		ret = platform_device_add_data(pdev,
@@ -183,10 +192,23 @@ EXPORT_SYMBOL(mfd_add_devices);
 
 static int mfd_remove_devices_fn(struct device *dev, void *c)
 {
+#if !defined(CONFIG_BCM_KF_ANDROID) || !defined(CONFIG_BCM_ANDROID)
 	struct platform_device *pdev = to_platform_device(dev);
 	const struct mfd_cell *cell = mfd_get_cell(pdev);
+#else
+	struct platform_device *pdev;
+	const struct mfd_cell *cell;
+#endif
 	atomic_t **usage_count = c;
 
+#if defined(CONFIG_BCM_KF_ANDROID) && defined(CONFIG_BCM_ANDROID)
+	if (dev->type != &mfd_dev_type)
+		return 0;
+
+	pdev = to_platform_device(dev);
+	cell = mfd_get_cell(pdev);
+
+#endif
 	/* find the base address of usage_count pointers (for freeing) */
 	if (!*usage_count || (cell->usage_count < *usage_count))
 		*usage_count = cell->usage_count;

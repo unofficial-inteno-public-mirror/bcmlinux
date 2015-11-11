@@ -148,7 +148,11 @@ static void ieee80211_work_work(struct work_struct *work)
 		}
 
 		if (!started && !local->tmp_channel) {
+#if !defined(CONFIG_BCM_KF_ANDROID) || !defined(CONFIG_BCM_ANDROID)
 			ieee80211_offchannel_stop_vifs(local, true);
+#else
+			ieee80211_offchannel_stop_vifs(local);
+#endif
 
 			local->tmp_channel = wk->chan;
 			local->tmp_channel_type = wk->chan_type;
@@ -220,7 +224,11 @@ static void ieee80211_work_work(struct work_struct *work)
 		local->tmp_channel = NULL;
 		ieee80211_hw_config(local, 0);
 
+#if !defined(CONFIG_BCM_KF_ANDROID) || !defined(CONFIG_BCM_ANDROID)
 		ieee80211_offchannel_return(local, true);
+#else
+		ieee80211_offchannel_return(local);
+#endif
 
 		/* give connection some time to breathe */
 		run_again(local, jiffies + HZ/2);

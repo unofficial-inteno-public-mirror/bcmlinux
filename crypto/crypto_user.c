@@ -75,7 +75,11 @@ static int crypto_report_cipher(struct sk_buff *skb, struct crypto_alg *alg)
 {
 	struct crypto_report_cipher rcipher;
 
+#if !defined(CONFIG_BCM_KF_ANDROID) || !defined(CONFIG_BCM_ANDROID)
 	snprintf(rcipher.type, CRYPTO_MAX_ALG_NAME, "%s", "cipher");
+#else
+	strncpy(rcipher.type, "cipher", sizeof(rcipher.type));
+#endif
 
 	rcipher.blocksize = alg->cra_blocksize;
 	rcipher.min_keysize = alg->cra_cipher.cia_min_keysize;
@@ -94,8 +98,12 @@ static int crypto_report_comp(struct sk_buff *skb, struct crypto_alg *alg)
 {
 	struct crypto_report_comp rcomp;
 
+#if !defined(CONFIG_BCM_KF_ANDROID) || !defined(CONFIG_BCM_ANDROID)
 	snprintf(rcomp.type, CRYPTO_MAX_ALG_NAME, "%s", "compression");
 
+#else
+	strncpy(rcomp.type, "compression", sizeof(rcomp.type));
+#endif
 	NLA_PUT(skb, CRYPTOCFGA_REPORT_COMPRESS,
 		sizeof(struct crypto_report_comp), &rcomp);
 
@@ -108,12 +116,23 @@ nla_put_failure:
 static int crypto_report_one(struct crypto_alg *alg,
 			     struct crypto_user_alg *ualg, struct sk_buff *skb)
 {
+#if !defined(CONFIG_BCM_KF_ANDROID) || !defined(CONFIG_BCM_ANDROID)
 	memcpy(&ualg->cru_name, &alg->cra_name, sizeof(ualg->cru_name));
 	memcpy(&ualg->cru_driver_name, &alg->cra_driver_name,
 	       sizeof(ualg->cru_driver_name));
 	memcpy(&ualg->cru_module_name, module_name(alg->cra_module),
 	       CRYPTO_MAX_ALG_NAME);
 
+#else
+	strncpy(ualg->cru_name, alg->cra_name, sizeof(ualg->cru_name));
+	strncpy(ualg->cru_driver_name, alg->cra_driver_name,
+		sizeof(ualg->cru_driver_name));
+	strncpy(ualg->cru_module_name, module_name(alg->cra_module),
+		sizeof(ualg->cru_module_name));
+
+	ualg->cru_type = 0;
+	ualg->cru_mask = 0;
+#endif
 	ualg->cru_flags = alg->cra_flags;
 	ualg->cru_refcnt = atomic_read(&alg->cra_refcnt);
 
@@ -122,8 +141,12 @@ static int crypto_report_one(struct crypto_alg *alg,
 	if (alg->cra_flags & CRYPTO_ALG_LARVAL) {
 		struct crypto_report_larval rl;
 
+#if !defined(CONFIG_BCM_KF_ANDROID) || !defined(CONFIG_BCM_ANDROID)
 		snprintf(rl.type, CRYPTO_MAX_ALG_NAME, "%s", "larval");
 
+#else
+		strncpy(rl.type, "larval", sizeof(rl.type));
+#endif
 		NLA_PUT(skb, CRYPTOCFGA_REPORT_LARVAL,
 			sizeof(struct crypto_report_larval), &rl);
 

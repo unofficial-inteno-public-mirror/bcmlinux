@@ -1189,8 +1189,10 @@ static int netlbl_unlabel_staticlist(struct sk_buff *skb,
 	struct netlbl_unlhsh_walk_arg cb_arg;
 	u32 skip_bkt = cb->args[0];
 	u32 skip_chain = cb->args[1];
+#if !defined(CONFIG_BCM_KF_ANDROID) || !defined(CONFIG_BCM_ANDROID)
 	u32 skip_addr4 = cb->args[2];
 	u32 skip_addr6 = cb->args[3];
+#endif
 	u32 iter_bkt;
 	u32 iter_chain = 0, iter_addr4 = 0, iter_addr6 = 0;
 	struct netlbl_unlhsh_iface *iface;
@@ -1215,7 +1217,11 @@ static int netlbl_unlabel_staticlist(struct sk_buff *skb,
 				continue;
 			netlbl_af4list_foreach_rcu(addr4,
 						   &iface->addr4_list) {
+#if !defined(CONFIG_BCM_KF_ANDROID) || !defined(CONFIG_BCM_ANDROID)
 				if (iter_addr4++ < skip_addr4)
+#else
+				if (iter_addr4++ < cb->args[2])
+#endif
 					continue;
 				if (netlbl_unlabel_staticlist_gen(
 					      NLBL_UNLABEL_C_STATICLIST,
@@ -1231,7 +1237,11 @@ static int netlbl_unlabel_staticlist(struct sk_buff *skb,
 #if IS_ENABLED(CONFIG_IPV6)
 			netlbl_af6list_foreach_rcu(addr6,
 						   &iface->addr6_list) {
+#if !defined(CONFIG_BCM_KF_ANDROID) || !defined(CONFIG_BCM_ANDROID)
 				if (iter_addr6++ < skip_addr6)
+#else
+				if (iter_addr6++ < cb->args[3])
+#endif
 					continue;
 				if (netlbl_unlabel_staticlist_gen(
 					      NLBL_UNLABEL_C_STATICLIST,
@@ -1250,10 +1260,17 @@ static int netlbl_unlabel_staticlist(struct sk_buff *skb,
 
 unlabel_staticlist_return:
 	rcu_read_unlock();
+#if !defined(CONFIG_BCM_KF_ANDROID) || !defined(CONFIG_BCM_ANDROID)
 	cb->args[0] = skip_bkt;
 	cb->args[1] = skip_chain;
 	cb->args[2] = skip_addr4;
 	cb->args[3] = skip_addr6;
+#else
+	cb->args[0] = iter_bkt;
+	cb->args[1] = iter_chain;
+	cb->args[2] = iter_addr4;
+	cb->args[3] = iter_addr6;
+#endif
 	return skb->len;
 }
 
@@ -1273,12 +1290,18 @@ static int netlbl_unlabel_staticlistdef(struct sk_buff *skb,
 {
 	struct netlbl_unlhsh_walk_arg cb_arg;
 	struct netlbl_unlhsh_iface *iface;
+#if !defined(CONFIG_BCM_KF_ANDROID) || !defined(CONFIG_BCM_ANDROID)
 	u32 skip_addr4 = cb->args[0];
 	u32 skip_addr6 = cb->args[1];
 	u32 iter_addr4 = 0;
+#else
+	u32 iter_addr4 = 0, iter_addr6 = 0;
+#endif
 	struct netlbl_af4list *addr4;
 #if IS_ENABLED(CONFIG_IPV6)
+#if !defined(CONFIG_BCM_KF_ANDROID) || !defined(CONFIG_BCM_ANDROID)
 	u32 iter_addr6 = 0;
+#endif
 	struct netlbl_af6list *addr6;
 #endif
 
@@ -1292,7 +1315,11 @@ static int netlbl_unlabel_staticlistdef(struct sk_buff *skb,
 		goto unlabel_staticlistdef_return;
 
 	netlbl_af4list_foreach_rcu(addr4, &iface->addr4_list) {
+#if !defined(CONFIG_BCM_KF_ANDROID) || !defined(CONFIG_BCM_ANDROID)
 		if (iter_addr4++ < skip_addr4)
+#else
+		if (iter_addr4++ < cb->args[0])
+#endif
 			continue;
 		if (netlbl_unlabel_staticlist_gen(NLBL_UNLABEL_C_STATICLISTDEF,
 					      iface,
@@ -1305,7 +1332,11 @@ static int netlbl_unlabel_staticlistdef(struct sk_buff *skb,
 	}
 #if IS_ENABLED(CONFIG_IPV6)
 	netlbl_af6list_foreach_rcu(addr6, &iface->addr6_list) {
+#if !defined(CONFIG_BCM_KF_ANDROID) || !defined(CONFIG_BCM_ANDROID)
 		if (iter_addr6++ < skip_addr6)
+#else
+		if (iter_addr6++ < cb->args[1])
+#endif
 			continue;
 		if (netlbl_unlabel_staticlist_gen(NLBL_UNLABEL_C_STATICLISTDEF,
 					      iface,
@@ -1320,8 +1351,13 @@ static int netlbl_unlabel_staticlistdef(struct sk_buff *skb,
 
 unlabel_staticlistdef_return:
 	rcu_read_unlock();
+#if !defined(CONFIG_BCM_KF_ANDROID) || !defined(CONFIG_BCM_ANDROID)
 	cb->args[0] = skip_addr4;
 	cb->args[1] = skip_addr6;
+#else
+	cb->args[0] = iter_addr4;
+	cb->args[1] = iter_addr6;
+#endif
 	return skb->len;
 }
 

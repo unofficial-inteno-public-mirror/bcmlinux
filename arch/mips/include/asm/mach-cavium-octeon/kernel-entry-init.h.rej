@@ -1,0 +1,49 @@
+--- arch/mips/include/asm/mach-cavium-octeon/kernel-entry-init.h	2015-11-10 18:01:12.236624336 +0100
++++ arch/mips/include/asm/mach-cavium-octeon/kernel-entry-init.h	2015-11-06 12:40:01.000000000 +0100
+@@ -91,3 +91,46 @@
+ octeon_spin_wait_boot:
+ 	# Get the core id of the next to be booted
+ 	LONG_L  t1, (t0)
++	# Keep looping if it isn't me
++	bne t1, v0, octeon_spin_wait_boot
++	nop
++	# Get my GP from the global variable
++	PTR_LA  t0, octeon_processor_gp
++	LONG_L  gp, (t0)
++	# Get my SP from the global variable
++	PTR_LA  t0, octeon_processor_sp
++	LONG_L  sp, (t0)
++	# Set the SP global variable to zero so the master knows we've started
++	LONG_S  zero, (t0)
++#ifdef __OCTEON__
++	syncw
++	syncw
++#else
++	sync
++#endif
++	# Jump to the normal Linux SMP entry point
++	j   smp_bootstrap
++	nop
++#else /* CONFIG_SMP */
++
++	#
++	# Someone tried to boot SMP with a non SMP kernel. All extra cores
++	# will halt here.
++	#
++octeon_wait_forever:
++	wait
++	b   octeon_wait_forever
++	nop
++
++#endif /* CONFIG_SMP */
++octeon_main_processor:
++	.set pop
++.endm
++
++/*
++ * Do SMP slave processor setup necessary before we can savely execute C code.
++ */
++	.macro  smp_slave_setup
++	.endm
++
++#endif /* __ASM_MACH_CAVIUM_OCTEON_KERNEL_ENTRY_H */

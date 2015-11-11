@@ -305,9 +305,14 @@ static ssize_t dio_complete(struct dio *dio, loff_t offset, ssize_t ret, bool is
 		dio->end_io(dio->iocb, offset, transferred,
 			    dio->private, ret, is_async);
 	} else {
+#if defined(CONFIG_BCM_KF_ANDROID) && defined(CONFIG_BCM_ANDROID)
+		inode_dio_done(dio->inode);
+#endif
 		if (is_async)
 			aio_complete(dio->iocb, ret, 0);
+#if !defined(CONFIG_BCM_KF_ANDROID) || !defined(CONFIG_BCM_ANDROID)
 		inode_dio_done(dio->inode);
+#endif
 	}
 
 	return ret;

@@ -248,7 +248,11 @@ struct sk_buff *__skb_recv_datagram(struct sock *sk, unsigned flags,
 		skb_queue_walk(queue, skb) {
 			*peeked = skb->peeked;
 			if (flags & MSG_PEEK) {
+#if !defined(CONFIG_BCM_KF_ANDROID) || !defined(CONFIG_BCM_ANDROID)
 				if (*off >= skb->len) {
+#else
+				if (*off >= skb->len && skb->len) {
+#endif
 					*off -= skb->len;
 					continue;
 				}

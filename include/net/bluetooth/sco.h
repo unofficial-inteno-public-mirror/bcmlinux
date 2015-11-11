@@ -37,6 +37,9 @@
 struct sockaddr_sco {
 	sa_family_t	sco_family;
 	bdaddr_t	sco_bdaddr;
+#if defined(CONFIG_BCM_KF_ANDROID) && defined(CONFIG_BCM_ANDROID)
+	__u16		sco_pkt_type;
+#endif
 };
 
 /* SCO socket options */
@@ -72,7 +75,12 @@ struct sco_conn {
 
 struct sco_pinfo {
 	struct bt_sock	bt;
+#if !defined(CONFIG_BCM_KF_ANDROID) || !defined(CONFIG_BCM_ANDROID)
 	__u32		flags;
+#else
+	__u16		pkt_type;
+
+#endif
 	struct sco_conn	*conn;
 };
 

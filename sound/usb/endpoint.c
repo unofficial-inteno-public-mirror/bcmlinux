@@ -895,7 +895,12 @@ void snd_usb_init_substream(struct snd_usb_stream *as,
 	subs->dev = as->chip->dev;
 	subs->txfr_quirk = as->chip->txfr_quirk;
 	subs->ops = audio_urb_ops[stream];
+#if !defined(CONFIG_BCM_KF_ANDROID) || !defined(CONFIG_BCM_ANDROID)
 	if (snd_usb_get_speed(subs->dev) >= USB_SPEED_HIGH)
+#else
+	subs->speed = snd_usb_get_speed(subs->dev);
+	if (subs->speed >= USB_SPEED_HIGH)
+#endif
 		subs->ops.prepare_sync = prepare_capture_sync_urb_hs;
 
 	snd_usb_set_pcm_ops(as->pcm, stream);

@@ -1383,6 +1383,10 @@ static void bond_compute_features(struct bonding *bond)
 	struct net_device *bond_dev = bond->dev;
 	netdev_features_t vlan_features = BOND_VLAN_FEATURES;
 	unsigned short max_hard_header_len = ETH_HLEN;
+#if defined(CONFIG_BCM_KF_ANDROID) && defined(CONFIG_BCM_ANDROID)
+	unsigned int gso_max_size = GSO_MAX_SIZE;
+	u16 gso_max_segs = GSO_MAX_SEGS;
+#endif
 	int i;
 
 	read_lock(&bond->lock);
@@ -1396,11 +1400,20 @@ static void bond_compute_features(struct bonding *bond)
 
 		if (slave->dev->hard_header_len > max_hard_header_len)
 			max_hard_header_len = slave->dev->hard_header_len;
+#if defined(CONFIG_BCM_KF_ANDROID) && defined(CONFIG_BCM_ANDROID)
+
+		gso_max_size = min(gso_max_size, slave->dev->gso_max_size);
+		gso_max_segs = min(gso_max_segs, slave->dev->gso_max_segs);
+#endif
 	}
 
 done:
 	bond_dev->vlan_features = vlan_features;
 	bond_dev->hard_header_len = max_hard_header_len;
+#if defined(CONFIG_BCM_KF_ANDROID) && defined(CONFIG_BCM_ANDROID)
+	bond_dev->gso_max_segs = gso_max_segs;
+	netif_set_gso_max_size(bond_dev, gso_max_size);
+#endif
 
 	read_unlock(&bond->lock);
 
@@ -1730,6 +1743,10 @@ int bond_enslave(struct net_device *bond_dev, struct net_device *slave_dev)
 
 	bond_compute_features(bond);
 
+#if defined(CONFIG_BCM_KF_ANDROID) && defined(CONFIG_BCM_ANDROID)
+	bond_update_speed_duplex(new_slave);
+
+#endif
 	read_lock(&bond->lock);
 
 	new_slave->last_arp_rx = jiffies;
@@ -1773,8 +1790,10 @@ int bond_enslave(struct net_device *bond_dev, struct net_device *slave_dev)
 		new_slave->link  = BOND_LINK_DOWN;
 	}
 
+#if !defined(CONFIG_BCM_KF_ANDROID) || !defined(CONFIG_BCM_ANDROID)
 	bond_update_speed_duplex(new_slave);
 
+#endif
 	if (USES_PRIMARY(bond->params.mode) && bond->params.primary[0]) {
 		/* if there is a primary slave, remember it */
 		if (strcmp(bond->params.primary, new_slave->dev->name) == 0) {
@@ -1949,12 +1968,17 @@ int bond_release(struct net_device *bond_dev, struct net_device *slave_dev)
 		return -EINVAL;
 	}
 
+#if defined(CONFIG_BCM_KF_ANDROID) && defined(CONFIG_BCM_ANDROID)
+	write_unlock_bh(&bond->lock);
+#endif
 	/* unregister rx_handler early so bond_handle_frame wouldn't be called
 	 * for this slave anymore.
 	 */
 	netdev_rx_handler_unregister(slave_dev);
+#if !defined(CONFIG_BCM_KF_ANDROID) || !defined(CONFIG_BCM_ANDROID)
 	write_unlock_bh(&bond->lock);
 	synchronize_net();
+#endif
 	write_lock_bh(&bond->lock);
 
 	if (!bond->params.fail_over_mac) {
@@ -2455,8 +2479,10 @@ static void bond_miimon_commit(struct bonding *bond)
 				bond_set_backup_slave(slave);
 			}
 
+#if !defined(CONFIG_BCM_KF_ANDROID) || !defined(CONFIG_BCM_ANDROID)
 			bond_update_speed_duplex(slave);
 
+#endif
 			pr_info("%s: link status definitely up for interface %s, %u Mbps %s duplex.\n",
 				bond->dev->name, slave->dev->name,
 				slave->speed, slave->duplex ? "full" : "half");
@@ -3393,6 +3419,30 @@ static int bond_xmit_hash_policy_l2(struct sk_buff *skb, int count)
 
 /*-------------------------- Device entry points ----------------------------*/
 
+#if defined(CONFIG_BCM_KF_ANDROID) && defined(CONFIG_BCM_ANDROID)
+static void bond_work_init_all(struct bonding *bond)
+{
+	INIT_DELAYED_WORK(&bond->mcast_work,
+			  bond_resend_igmp_join_requests_delayed);
+	INIT_DELAYED_WORK(&bond->alb_work, bond_alb_monitor);
+	INIT_DELAYED_WORK(&bond->mii_work, bond_mii_monitor);
+	if (bond->params.mode == BOND_MODE_ACTIVEBACKUP)
+		INIT_DELAYED_WORK(&bond->arp_work, bond_activebackup_arp_mon);
+	else
+		INIT_DELAYED_WORK(&bond->arp_work, bond_loadbalance_arp_mon);
+	INIT_DELAYED_WORK(&bond->ad_work, bond_3ad_state_machine_handler);
+}
+
+static void bond_work_cancel_all(struct bonding *bond)
+{
+	cancel_delayed_work_sync(&bond->mii_work);
+	cancel_delayed_work_sync(&bond->arp_work);
+	cancel_delayed_work_sync(&bond->alb_work);
+	cancel_delayed_work_sync(&bond->ad_work);
+	cancel_delayed_work_sync(&bond->mcast_work);
+}
+
+#endif
 static int bond_open(struct net_device *bond_dev)
 {
 	struct bonding *bond = netdev_priv(bond_dev);
@@ -3415,27 +3465,44 @@ static int bond_open(struct net_device *bond_dev)
 	}
 	read_unlock(&bond->lock);
 
+#if !defined(CONFIG_BCM_KF_ANDROID) || !defined(CONFIG_BCM_ANDROID)
 	INIT_DELAYED_WORK(&bond->mcast_work, bond_resend_igmp_join_requests_delayed);
+#else
+	bond_work_init_all(bond);
+#endif
 
 	if (bond_is_lb(bond)) {
 		/* bond_alb_initialize must be called before the timer
 		 * is started.
 		 */
+#if !defined(CONFIG_BCM_KF_ANDROID) || !defined(CONFIG_BCM_ANDROID)
 		if (bond_alb_initialize(bond, (bond->params.mode == BOND_MODE_ALB))) {
 			/* something went wrong - fail the open operation */
+#else
+		if (bond_alb_initialize(bond, (bond->params.mode == BOND_MODE_ALB)))
+#endif
 			return -ENOMEM;
+#if !defined(CONFIG_BCM_KF_ANDROID) || !defined(CONFIG_BCM_ANDROID)
 		}
 
 		INIT_DELAYED_WORK(&bond->alb_work, bond_alb_monitor);
+#endif
 		queue_delayed_work(bond->wq, &bond->alb_work, 0);
 	}
 
+#if !defined(CONFIG_BCM_KF_ANDROID) || !defined(CONFIG_BCM_ANDROID)
 	if (bond->params.miimon) {  /* link check interval, in milliseconds. */
 		INIT_DELAYED_WORK(&bond->mii_work, bond_mii_monitor);
+#else
+	if (bond->params.miimon)  /* link check interval, in milliseconds. */
+#endif
 		queue_delayed_work(bond->wq, &bond->mii_work, 0);
+#if !defined(CONFIG_BCM_KF_ANDROID) || !defined(CONFIG_BCM_ANDROID)
 	}
+#endif
 
 	if (bond->params.arp_interval) {  /* arp interval, in milliseconds. */
+#if !defined(CONFIG_BCM_KF_ANDROID) || !defined(CONFIG_BCM_ANDROID)
 		if (bond->params.mode == BOND_MODE_ACTIVEBACKUP)
 			INIT_DELAYED_WORK(&bond->arp_work,
 					  bond_activebackup_arp_mon);
@@ -3443,13 +3510,16 @@ static int bond_open(struct net_device *bond_dev)
 			INIT_DELAYED_WORK(&bond->arp_work,
 					  bond_loadbalance_arp_mon);
 
+#endif
 		queue_delayed_work(bond->wq, &bond->arp_work, 0);
 		if (bond->params.arp_validate)
 			bond->recv_probe = bond_arp_rcv;
 	}
 
 	if (bond->params.mode == BOND_MODE_8023AD) {
+#if !defined(CONFIG_BCM_KF_ANDROID) || !defined(CONFIG_BCM_ANDROID)
 		INIT_DELAYED_WORK(&bond->ad_work, bond_3ad_state_machine_handler);
+#endif
 		queue_delayed_work(bond->wq, &bond->ad_work, 0);
 		/* register to receive LACPDUs */
 		bond->recv_probe = bond_3ad_lacpdu_recv;
@@ -3464,11 +3534,16 @@ static int bond_close(struct net_device *bond_dev)
 	struct bonding *bond = netdev_priv(bond_dev);
 
 	write_lock_bh(&bond->lock);
+#if !defined(CONFIG_BCM_KF_ANDROID) || !defined(CONFIG_BCM_ANDROID)
 
+#endif
 	bond->send_peer_notif = 0;
+#if !defined(CONFIG_BCM_KF_ANDROID) || !defined(CONFIG_BCM_ANDROID)
 
+#endif
 	write_unlock_bh(&bond->lock);
 
+#if !defined(CONFIG_BCM_KF_ANDROID) || !defined(CONFIG_BCM_ANDROID)
 	if (bond->params.miimon) {  /* link check interval, in milliseconds. */
 		cancel_delayed_work_sync(&bond->mii_work);
 	}
@@ -3492,6 +3567,9 @@ static int bond_close(struct net_device *bond_dev)
 	if (delayed_work_pending(&bond->mcast_work))
 		cancel_delayed_work_sync(&bond->mcast_work);
 
+#else
+	bond_work_cancel_all(bond);
+#endif
 	if (bond_is_lb(bond)) {
 		/* Must be called only after all
 		 * slaves have been released
@@ -4370,6 +4448,7 @@ static void bond_setup(struct net_device *bond_dev)
 	bond_dev->features |= bond_dev->hw_features;
 }
 
+#if !defined(CONFIG_BCM_KF_ANDROID) || !defined(CONFIG_BCM_ANDROID)
 static void bond_work_cancel_all(struct bonding *bond)
 {
 	if (bond->params.miimon && delayed_work_pending(&bond->mii_work))
@@ -4390,6 +4469,7 @@ static void bond_work_cancel_all(struct bonding *bond)
 		cancel_delayed_work_sync(&bond->mcast_work);
 }
 
+#endif
 /*
 * Destroy a bonding device.
 * Must be under rtnl_lock when this function is called.

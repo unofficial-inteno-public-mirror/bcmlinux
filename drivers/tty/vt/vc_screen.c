@@ -93,7 +93,11 @@ vcs_poll_data_free(struct vcs_poll_data *poll)
 static struct vcs_poll_data *
 vcs_poll_data_get(struct file *file)
 {
+#if !defined(CONFIG_BCM_KF_ANDROID) || !defined(CONFIG_BCM_ANDROID)
 	struct vcs_poll_data *poll = file->private_data;
+#else
+	struct vcs_poll_data *poll = file->private_data, *kill = NULL;
+#endif
 
 	if (poll)
 		return poll;
@@ -122,10 +126,18 @@ vcs_poll_data_get(struct file *file)
 		file->private_data = poll;
 	} else {
 		/* someone else raced ahead of us */
+#if !defined(CONFIG_BCM_KF_ANDROID) || !defined(CONFIG_BCM_ANDROID)
 		vcs_poll_data_free(poll);
+#else
+		kill = poll;
+#endif
 		poll = file->private_data;
 	}
 	spin_unlock(&file->f_lock);
+#if defined(CONFIG_BCM_KF_ANDROID) && defined(CONFIG_BCM_ANDROID)
+	if (kill)
+		vcs_poll_data_free(kill);
+#endif
 
 	return poll;
 }

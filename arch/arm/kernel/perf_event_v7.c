@@ -775,7 +775,11 @@ static const unsigned armv7_a7_perf_cache_map[PERF_COUNT_HW_CACHE_MAX]
 /*
  * PMXEVTYPER: Event selection reg
  */
+#if !defined(CONFIG_BCM_KF_ANDROID) || !defined(CONFIG_BCM_ANDROID)
 #define	ARMV7_EVTYPE_MASK	0xc00000ff	/* Mask for writable bits */
+#else
+#define	ARMV7_EVTYPE_MASK	0xc80000ff	/* Mask for writable bits */
+#endif
 #define	ARMV7_EVTYPE_EVENT	0xff		/* Mask for EVENT bits */
 
 /*

@@ -467,7 +467,11 @@ static int rfcomm_get_dev_list(void __user *arg)
 
 	size = sizeof(*dl) + dev_num * sizeof(*di);
 
+#if !defined(CONFIG_BCM_KF_ANDROID) || !defined(CONFIG_BCM_ANDROID)
 	dl = kmalloc(size, GFP_KERNEL);
+#else
+	dl = kzalloc(size, GFP_KERNEL);
+#endif
 	if (!dl)
 		return -ENOMEM;
 

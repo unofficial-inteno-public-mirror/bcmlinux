@@ -236,7 +236,11 @@ static inline unsigned char tt_start_uframe(struct ehci_hcd *ehci, __hc32 mask)
 }
 
 static const unsigned char
+#if !defined(CONFIG_BCM_KF_ANDROID) || !defined(CONFIG_BCM_ANDROID)
 max_tt_usecs[] = { 125, 125, 125, 125, 125, 125, 30, 0 };
+#else
+max_tt_usecs[] = { 125, 125, 125, 125, 125, 125, 125, 25 };
+#endif
 
 /* carryover low/fullspeed bandwidth that crosses uframe boundries */
 static inline void carryover_tt_bandwidth(unsigned short tt_usecs[8])

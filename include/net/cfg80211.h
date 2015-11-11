@@ -2479,6 +2479,17 @@ unsigned int ieee80211_get_hdrlen_from_skb(const struct sk_buff *skb);
  */
 unsigned int __attribute_const__ ieee80211_hdrlen(__le16 fc);
 
+#if defined(CONFIG_BCM_KF_ANDROID) && defined(CONFIG_BCM_ANDROID)
+/**
+ * ieee80211_get_mesh_hdrlen - get mesh extension header length
+ * @meshhdr: the mesh extension header, only the flags field
+ *	(first byte) will be accessed
+ * Returns the length of the extension header, which is always at
+ * least 6 bytes and at most 18 if address 5 and 6 are present.
+ */
+unsigned int ieee80211_get_mesh_hdrlen(struct ieee80211s_hdr *meshhdr);
+
+#endif
 /**
  * DOC: Data path helpers
  *

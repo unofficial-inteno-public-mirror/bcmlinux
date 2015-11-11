@@ -578,7 +578,11 @@ void dmaengine_get(void)
 				list_del_rcu(&device->global_node);
 				break;
 			} else if (err)
+#if !defined(CONFIG_BCM_KF_ANDROID) || !defined(CONFIG_BCM_ANDROID)
 				pr_err("%s: failed to get %s: (%d)\n",
+#else
+				pr_debug("%s: failed to get %s: (%d)\n",
+#endif
 					__func__, dma_chan_name(chan), err);
 		}
 	}

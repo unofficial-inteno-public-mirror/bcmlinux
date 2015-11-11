@@ -254,8 +254,10 @@ static void nfsd_shutdown(void)
 
 static void nfsd_last_thread(struct svc_serv *serv, struct net *net)
 {
+#if !defined(CONFIG_BCM_KF_ANDROID) || !defined(CONFIG_BCM_ANDROID)
 	/* When last nfsd thread exits we need to do some clean-up */
 	nfsd_serv = NULL;
+#endif
 	nfsd_shutdown();
 
 	svc_rpcb_cleanup(serv, net);
@@ -332,6 +334,9 @@ static int nfsd_get_default_max_blksize(void)
 int nfsd_create_serv(void)
 {
 	int error;
+#if defined(CONFIG_BCM_KF_ANDROID) && defined(CONFIG_BCM_ANDROID)
+	struct net *net = current->nsproxy->net_ns;
+#endif
 
 	WARN_ON(!mutex_is_locked(&nfsd_mutex));
 	if (nfsd_serv) {
@@ -346,7 +351,11 @@ int nfsd_create_serv(void)
 	if (nfsd_serv == NULL)
 		return -ENOMEM;
 
+#if !defined(CONFIG_BCM_KF_ANDROID) || !defined(CONFIG_BCM_ANDROID)
 	error = svc_bind(nfsd_serv, current->nsproxy->net_ns);
+#else
+	error = svc_bind(nfsd_serv, net);
+#endif
 	if (error < 0) {
 		svc_destroy(nfsd_serv);
 		return error;
@@ -427,11 +436,15 @@ int nfsd_set_nrthreads(int n, int *nthreads)
 		if (err)
 			break;
 	}
+#if !defined(CONFIG_BCM_KF_ANDROID) || !defined(CONFIG_BCM_ANDROID)
 
 	if (nfsd_serv->sv_nrthreads == 1)
 		svc_shutdown_net(nfsd_serv, net);
 	svc_destroy(nfsd_serv);
 
+#else
+	nfsd_destroy(net);
+#endif
 	return err;
 }
 
@@ -478,9 +491,13 @@ out_shutdown:
 	if (error < 0 && !nfsd_up_before)
 		nfsd_shutdown();
 out_destroy:
+#if !defined(CONFIG_BCM_KF_ANDROID) || !defined(CONFIG_BCM_ANDROID)
 	if (nfsd_serv->sv_nrthreads == 1)
 		svc_shutdown_net(nfsd_serv, net);
 	svc_destroy(nfsd_serv);		/* Release server */
+#else
+	nfsd_destroy(net);		/* Release server */
+#endif
 out:
 	mutex_unlock(&nfsd_mutex);
 	return error;
@@ -563,12 +580,20 @@ nfsd(void *vrqstp)
 	nfsdstats.th_cnt --;
 
 out:
+#if !defined(CONFIG_BCM_KF_ANDROID) || !defined(CONFIG_BCM_ANDROID)
 	if (rqstp->rq_server->sv_nrthreads == 1)
 		svc_shutdown_net(rqstp->rq_server, &init_net);
+#else
+	rqstp->rq_server = NULL;
+#endif
 
 	/* Release the thread */
 	svc_exit_thread(rqstp);
 
+#if defined(CONFIG_BCM_KF_ANDROID) && defined(CONFIG_BCM_ANDROID)
+	nfsd_destroy(&init_net);
+
+#endif
 	/* Release module */
 	mutex_unlock(&nfsd_mutex);
 	module_put_and_exit(0);
@@ -656,7 +681,11 @@ nfsd_dispatch(struct svc_rqst *rqstp, __be32 *statp)
 	}
 
 	/* Store reply in cache. */
+#if !defined(CONFIG_BCM_KF_ANDROID) || !defined(CONFIG_BCM_ANDROID)
 	nfsd_cache_update(rqstp, proc->pc_cachetype, statp + 1);
+#else
+	nfsd_cache_update(rqstp, rqstp->rq_cachetype, statp + 1);
+#endif
 	return 1;
 }
 
@@ -682,9 +711,13 @@ int nfsd_pool_stats_release(struct inode *inode, struct file *file)
 
 	mutex_lock(&nfsd_mutex);
 	/* this function really, really should have been called svc_put() */
+#if !defined(CONFIG_BCM_KF_ANDROID) || !defined(CONFIG_BCM_ANDROID)
 	if (nfsd_serv->sv_nrthreads == 1)
 		svc_shutdown_net(nfsd_serv, net);
 	svc_destroy(nfsd_serv);
+#else
+	nfsd_destroy(net);
+#endif
 	mutex_unlock(&nfsd_mutex);
 	return ret;
 }

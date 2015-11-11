@@ -1053,13 +1053,19 @@ static int kbd_update_leds_helper(struct input_handle *handle, void *data)
  */
 int vt_get_leds(int console, int flag)
 {
+#if !defined(CONFIG_BCM_KF_ANDROID) || !defined(CONFIG_BCM_ANDROID)
 	unsigned long flags;
+#endif
 	struct kbd_struct * kbd = kbd_table + console;
 	int ret;
 
+#if !defined(CONFIG_BCM_KF_ANDROID) || !defined(CONFIG_BCM_ANDROID)
 	spin_lock_irqsave(&kbd_event_lock, flags);
+#endif
 	ret = vc_kbd_led(kbd, flag);
+#if !defined(CONFIG_BCM_KF_ANDROID) || !defined(CONFIG_BCM_ANDROID)
 	spin_unlock_irqrestore(&kbd_event_lock, flags);
+#endif
 
 	return ret;
 }

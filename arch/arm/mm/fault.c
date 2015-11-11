@@ -279,7 +279,11 @@ do_page_fault(unsigned long addr, unsigned int fsr, struct pt_regs *regs)
 	 * If we're in an interrupt or have no user
 	 * context, we must not take the fault..
 	 */
+#if !defined(CONFIG_BCM_KF_ANDROID) || !defined(CONFIG_BCM_ANDROID)
 	if (!mm || pagefault_disabled())
+#else
+	if (!mm || irqs_disabled() || pagefault_disabled())
+#endif
 		goto no_context;
 
 	/*

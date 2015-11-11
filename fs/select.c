@@ -26,6 +26,9 @@
 #include <linux/fs.h>
 #include <linux/rcupdate.h>
 #include <linux/hrtimer.h>
+#if defined(CONFIG_BCM_KF_ANDROID) && defined(CONFIG_BCM_ANDROID)
+#include <linux/freezer.h>
+#endif
 
 #include <asm/uaccess.h>
 
@@ -236,7 +239,12 @@ int poll_schedule_timeout(struct poll_wqueues *pwq, int state,
 
 	set_current_state(state);
 	if (!pwq->triggered)
+#if !defined(CONFIG_BCM_KF_ANDROID) || !defined(CONFIG_BCM_ANDROID)
 		rc = schedule_hrtimeout_range(expires, slack, HRTIMER_MODE_ABS);
+#else
+		rc = freezable_schedule_hrtimeout_range(expires, slack,
+							HRTIMER_MODE_ABS);
+#endif
 	__set_current_state(TASK_RUNNING);
 
 	/*

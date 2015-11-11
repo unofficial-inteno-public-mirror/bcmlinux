@@ -23,7 +23,11 @@ static void node_prepare_for_write(struct dm_block_validator *v,
 				   struct dm_block *b,
 				   size_t block_size)
 {
+#if !defined(CONFIG_BCM_KF_ANDROID) || !defined(CONFIG_BCM_ANDROID)
 	struct node *n = dm_block_data(b);
+#else
+	struct btree_node *n = dm_block_data(b);
+#endif
 	struct node_header *h = &n->header;
 
 	h->blocknr = cpu_to_le64(dm_block_location(b));
@@ -38,7 +42,11 @@ static int node_check(struct dm_block_validator *v,
 		      struct dm_block *b,
 		      size_t block_size)
 {
+#if !defined(CONFIG_BCM_KF_ANDROID) || !defined(CONFIG_BCM_ANDROID)
 	struct node *n = dm_block_data(b);
+#else
+	struct btree_node *n = dm_block_data(b);
+#endif
 	struct node_header *h = &n->header;
 	size_t value_size;
 	__le32 csum_disk;
@@ -164,7 +172,11 @@ int ro_step(struct ro_spine *s, dm_block_t new_child)
 	return r;
 }
 
+#if !defined(CONFIG_BCM_KF_ANDROID) || !defined(CONFIG_BCM_ANDROID)
 struct node *ro_node(struct ro_spine *s)
+#else
+struct btree_node *ro_node(struct ro_spine *s)
+#endif
 {
 	struct dm_block *block;
 

@@ -404,7 +404,11 @@ static int crypto_ahash_report(struct sk_buff *skb, struct crypto_alg *alg)
 {
 	struct crypto_report_hash rhash;
 
+#if !defined(CONFIG_BCM_KF_ANDROID) || !defined(CONFIG_BCM_ANDROID)
 	snprintf(rhash.type, CRYPTO_MAX_ALG_NAME, "%s", "ahash");
+#else
+	strncpy(rhash.type, "ahash", sizeof(rhash.type));
+#endif
 
 	rhash.blocksize = alg->cra_blocksize;
 	rhash.digestsize = __crypto_hash_alg_common(alg)->digestsize;

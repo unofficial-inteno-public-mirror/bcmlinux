@@ -132,7 +132,11 @@ static void l2tp_eth_dev_recv(struct l2tp_session *session, struct sk_buff *skb,
 		printk("\n");
 	}
 
+#if !defined(CONFIG_BCM_KF_ANDROID) || !defined(CONFIG_BCM_ANDROID)
 	if (!pskb_may_pull(skb, sizeof(ETH_HLEN)))
+#else
+	if (!pskb_may_pull(skb, ETH_HLEN))
+#endif
 		goto error;
 
 	secpath_reset(skb);
@@ -269,6 +273,9 @@ static int l2tp_eth_create(struct net *net, u32 tunnel_id, u32 session_id, u32 p
 
 out_del_dev:
 	free_netdev(dev);
+#if defined(CONFIG_BCM_KF_ANDROID) && defined(CONFIG_BCM_ANDROID)
+	spriv->dev = NULL;
+#endif
 out_del_session:
 	l2tp_session_delete(session);
 out:

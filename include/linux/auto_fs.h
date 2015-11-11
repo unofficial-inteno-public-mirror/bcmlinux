@@ -44,12 +44,20 @@
  *
  * If so, 32-bit user-space code should be backwards compatible.
  */
+#if !defined(CONFIG_BCM_KF_ANDROID) || !defined(CONFIG_BCM_ANDROID)
 
 #if defined(__sparc__) || defined(__mips__) || defined(__x86_64__) \
  || defined(__powerpc__) || defined(__s390__)
 typedef unsigned int autofs_wqt_t;
 #else
 typedef unsigned long autofs_wqt_t;
+#endif
+#else
+#if defined(__ia64__) || defined(__alpha__) /* pure 64bit architectures */
+typedef unsigned long autofs_wqt_t;
+#else
+typedef unsigned int autofs_wqt_t;
+#endif
 #endif
 
 /* Packet types */

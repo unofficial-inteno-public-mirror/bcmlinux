@@ -329,7 +329,11 @@ static void __ieee80211_scan_completed(struct ieee80211_hw *hw, bool aborted,
 	if (!was_hw_scan) {
 		ieee80211_configure_filter(local);
 		drv_sw_scan_complete(local);
+#if !defined(CONFIG_BCM_KF_ANDROID) || !defined(CONFIG_BCM_ANDROID)
 		ieee80211_offchannel_return(local, true);
+#else
+		ieee80211_offchannel_return(local);
+#endif
 	}
 
 	ieee80211_recalc_idle(local);
@@ -374,7 +378,11 @@ static int ieee80211_start_sw_scan(struct ieee80211_local *local)
 	local->next_scan_state = SCAN_DECISION;
 	local->scan_channel_idx = 0;
 
+#if !defined(CONFIG_BCM_KF_ANDROID) || !defined(CONFIG_BCM_ANDROID)
 	ieee80211_offchannel_stop_vifs(local, true);
+#else
+	ieee80211_offchannel_stop_vifs(local);
+#endif
 
 	ieee80211_configure_filter(local);
 
@@ -629,12 +637,17 @@ static void ieee80211_scan_state_suspend(struct ieee80211_local *local,
 	local->scan_channel = NULL;
 	ieee80211_hw_config(local, IEEE80211_CONF_CHANGE_CHANNEL);
 
+#if !defined(CONFIG_BCM_KF_ANDROID) || !defined(CONFIG_BCM_ANDROID)
 	/*
 	 * Re-enable vifs and beaconing.  Leave PS
 	 * in off-channel state..will put that back
 	 * on-channel at the end of scanning.
 	 */
 	ieee80211_offchannel_return(local, false);
+#else
+	/* disable PS */
+	ieee80211_offchannel_return(local);
+#endif
 
 	*next_delay = HZ / 5;
 	/* afterwards, resume scan & go to next channel */
@@ -644,8 +657,12 @@ static void ieee80211_scan_state_suspend(struct ieee80211_local *local,
 static void ieee80211_scan_state_resume(struct ieee80211_local *local,
 					unsigned long *next_delay)
 {
+#if !defined(CONFIG_BCM_KF_ANDROID) || !defined(CONFIG_BCM_ANDROID)
 	/* PS already is in off-channel mode */
 	ieee80211_offchannel_stop_vifs(local, false);
+#else
+	ieee80211_offchannel_stop_vifs(local);
+#endif
 
 	if (local->ops->flush) {
 		drv_flush(local, false);
@@ -761,9 +778,15 @@ int ieee80211_request_scan(struct ieee80211_sub_if_data *sdata,
 	return res;
 }
 
+#if !defined(CONFIG_BCM_KF_ANDROID) || !defined(CONFIG_BCM_ANDROID)
 int ieee80211_request_internal_scan(struct ieee80211_sub_if_data *sdata,
 				    const u8 *ssid, u8 ssid_len,
 				    struct ieee80211_channel *chan)
+#else
+int ieee80211_request_ibss_scan(struct ieee80211_sub_if_data *sdata,
+				const u8 *ssid, u8 ssid_len,
+				struct ieee80211_channel *chan)
+#endif
 {
 	struct ieee80211_local *local = sdata->local;
 	int ret = -EBUSY;
@@ -777,22 +800,57 @@ int ieee80211_request_internal_scan(struct ieee80211_sub_if_data *sdata,
 
 	/* fill internal scan request */
 	if (!chan) {
+#if !defined(CONFIG_BCM_KF_ANDROID) || !defined(CONFIG_BCM_ANDROID)
 		int i, nchan = 0;
+#else
+		int i, max_n;
+		int n_ch = 0;
+#endif
 
 		for (band = 0; band < IEEE80211_NUM_BANDS; band++) {
 			if (!local->hw.wiphy->bands[band])
 				continue;
+#if !defined(CONFIG_BCM_KF_ANDROID) || !defined(CONFIG_BCM_ANDROID)
 			for (i = 0;
 			     i < local->hw.wiphy->bands[band]->n_channels;
 			     i++) {
 				local->int_scan_req->channels[nchan] =
+#else
+
+			max_n = local->hw.wiphy->bands[band]->n_channels;
+			for (i = 0; i < max_n; i++) {
+				struct ieee80211_channel *tmp_ch =
+#endif
 				    &local->hw.wiphy->bands[band]->channels[i];
+#if !defined(CONFIG_BCM_KF_ANDROID) || !defined(CONFIG_BCM_ANDROID)
 				nchan++;
+#else
+
+				if (tmp_ch->flags & (IEEE80211_CHAN_NO_IBSS |
+						     IEEE80211_CHAN_DISABLED))
+					continue;
+
+				local->int_scan_req->channels[n_ch] = tmp_ch;
+				n_ch++;
+#endif
 			}
 		}
 
+#if !defined(CONFIG_BCM_KF_ANDROID) || !defined(CONFIG_BCM_ANDROID)
 		local->int_scan_req->n_channels = nchan;
+#else
+		if (WARN_ON_ONCE(n_ch == 0))
+			goto unlock;
+
+		local->int_scan_req->n_channels = n_ch;
+#endif
 	} else {
+#if defined(CONFIG_BCM_KF_ANDROID) && defined(CONFIG_BCM_ANDROID)
+		if (WARN_ON_ONCE(chan->flags & (IEEE80211_CHAN_NO_IBSS |
+						IEEE80211_CHAN_DISABLED)))
+			goto unlock;
+
+#endif
 		local->int_scan_req->channels[0] = chan;
 		local->int_scan_req->n_channels = 1;
 	}

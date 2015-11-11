@@ -8,6 +8,9 @@
  *
  */
 
+#if defined(CONFIG_BCM_KF_ANDROID) && defined(CONFIG_BCM_ANDROID)
+#include <linux/alarmtimer.h>
+#endif
 #include <linux/file.h>
 #include <linux/poll.h>
 #include <linux/init.h>
@@ -25,7 +28,14 @@
 #include <linux/rcupdate.h>
 
 struct timerfd_ctx {
+#if !defined(CONFIG_BCM_KF_ANDROID) || !defined(CONFIG_BCM_ANDROID)
 	struct hrtimer tmr;
+#else
+	union {
+		struct hrtimer tmr;
+		struct alarm alarm;
+	} t;
+#endif
 	ktime_t tintv;
 	ktime_t moffs;
 	wait_queue_head_t wqh;
@@ -40,14 +50,28 @@ struct timerfd_ctx {
 static LIST_HEAD(cancel_list);
 static DEFINE_SPINLOCK(cancel_lock);
 
+#if defined(CONFIG_BCM_KF_ANDROID) && defined(CONFIG_BCM_ANDROID)
+static inline bool isalarm(struct timerfd_ctx *ctx)
+{
+	return ctx->clockid == CLOCK_REALTIME_ALARM ||
+		ctx->clockid == CLOCK_BOOTTIME_ALARM;
+}
+
+#endif
 /*
  * This gets called when the timer event triggers. We set the "expired"
  * flag, but we do not re-arm the timer (in case it's necessary,
  * tintv.tv64 != 0) until the timer is accessed.
  */
+#if !defined(CONFIG_BCM_KF_ANDROID) || !defined(CONFIG_BCM_ANDROID)
 static enum hrtimer_restart timerfd_tmrproc(struct hrtimer *htmr)
+#else
+static void timerfd_triggered(struct timerfd_ctx *ctx)
+#endif
 {
+#if !defined(CONFIG_BCM_KF_ANDROID) || !defined(CONFIG_BCM_ANDROID)
 	struct timerfd_ctx *ctx = container_of(htmr, struct timerfd_ctx, tmr);
+#endif
 	unsigned long flags;
 
 	spin_lock_irqsave(&ctx->wqh.lock, flags);
@@ -55,10 +79,31 @@ static enum hrtimer_restart timerfd_tmrproc(struct hrtimer *htmr)
 	ctx->ticks++;
 	wake_up_locked(&ctx->wqh);
 	spin_unlock_irqrestore(&ctx->wqh.lock, flags);
+#if defined(CONFIG_BCM_KF_ANDROID) && defined(CONFIG_BCM_ANDROID)
+}
+#endif
 
+#if defined(CONFIG_BCM_KF_ANDROID) && defined(CONFIG_BCM_ANDROID)
+static enum hrtimer_restart timerfd_tmrproc(struct hrtimer *htmr)
+{
+	struct timerfd_ctx *ctx = container_of(htmr, struct timerfd_ctx,
+					       t.tmr);
+	timerfd_triggered(ctx);
+#endif
 	return HRTIMER_NORESTART;
 }
 
+#if defined(CONFIG_BCM_KF_ANDROID) && defined(CONFIG_BCM_ANDROID)
+static enum alarmtimer_restart timerfd_alarmproc(struct alarm *alarm,
+	ktime_t now)
+{
+	struct timerfd_ctx *ctx = container_of(alarm, struct timerfd_ctx,
+					       t.alarm);
+	timerfd_triggered(ctx);
+	return ALARMTIMER_NORESTART;
+}
+
+#endif
 /*
  * Called when the clock was set to cancel the timers in the cancel
  * list. This will wake up processes waiting on these timers. The
@@ -106,8 +151,14 @@ static bool timerfd_canceled(struct timerfd_ctx *ctx)
 
 static void timerfd_setup_cancel(struct timerfd_ctx *ctx, int flags)
 {
+#if !defined(CONFIG_BCM_KF_ANDROID) || !defined(CONFIG_BCM_ANDROID)
 	if (ctx->clockid == CLOCK_REALTIME && (flags & TFD_TIMER_ABSTIME) &&
 	    (flags & TFD_TIMER_CANCEL_ON_SET)) {
+#else
+	if ((ctx->clockid == CLOCK_REALTIME ||
+	     ctx->clockid == CLOCK_REALTIME_ALARM) &&
+	    (flags & TFD_TIMER_ABSTIME) && (flags & TFD_TIMER_CANCEL_ON_SET)) {
+#endif
 		if (!ctx->might_cancel) {
 			ctx->might_cancel = true;
 			spin_lock(&cancel_lock);
@@ -123,7 +174,15 @@ static ktime_t timerfd_get_remaining(struct timerfd_ctx *ctx)
 {
 	ktime_t remaining;
 
+#if !defined(CONFIG_BCM_KF_ANDROID) || !defined(CONFIG_BCM_ANDROID)
 	remaining = hrtimer_expires_remaining(&ctx->tmr);
+#else
+	if (isalarm(ctx))
+		remaining = alarm_expires_remaining(&ctx->t.alarm);
+	else
+		remaining = hrtimer_expires_remaining(&ctx->t.tmr);
+
+#endif
 	return remaining.tv64 < 0 ? ktime_set(0, 0): remaining;
 }
 
@@ -141,11 +200,38 @@ static int timerfd_setup(struct timerfd_ctx *ctx, int flags,
 	ctx->expired = 0;
 	ctx->ticks = 0;
 	ctx->tintv = timespec_to_ktime(ktmr->it_interval);
+#if !defined(CONFIG_BCM_KF_ANDROID) || !defined(CONFIG_BCM_ANDROID)
 	hrtimer_init(&ctx->tmr, clockid, htmode);
 	hrtimer_set_expires(&ctx->tmr, texp);
 	ctx->tmr.function = timerfd_tmrproc;
+#else
+
+	if (isalarm(ctx)) {
+		alarm_init(&ctx->t.alarm,
+			   ctx->clockid == CLOCK_REALTIME_ALARM ?
+			   ALARM_REALTIME : ALARM_BOOTTIME,
+			   timerfd_alarmproc);
+	} else {
+		hrtimer_init(&ctx->t.tmr, clockid, htmode);
+		hrtimer_set_expires(&ctx->t.tmr, texp);
+		ctx->t.tmr.function = timerfd_tmrproc;
+	}
+
+#endif
 	if (texp.tv64 != 0) {
+#if !defined(CONFIG_BCM_KF_ANDROID) || !defined(CONFIG_BCM_ANDROID)
 		hrtimer_start(&ctx->tmr, texp, htmode);
+#else
+		if (isalarm(ctx)) {
+			if (flags & TFD_TIMER_ABSTIME)
+				alarm_start(&ctx->t.alarm, texp);
+			else
+				alarm_start_relative(&ctx->t.alarm, texp);
+		} else {
+			hrtimer_start(&ctx->t.tmr, texp, htmode);
+		}
+
+#endif
 		if (timerfd_canceled(ctx))
 			return -ECANCELED;
 	}
@@ -157,7 +243,15 @@ static int timerfd_release(struct inode *inode, struct file *file)
 	struct timerfd_ctx *ctx = file->private_data;
 
 	timerfd_remove_cancel(ctx);
+#if !defined(CONFIG_BCM_KF_ANDROID) || !defined(CONFIG_BCM_ANDROID)
 	hrtimer_cancel(&ctx->tmr);
+#else
+
+	if (isalarm(ctx))
+		alarm_cancel(&ctx->t.alarm);
+	else
+		hrtimer_cancel(&ctx->t.tmr);
+#endif
 	kfree_rcu(ctx, rcu);
 	return 0;
 }
@@ -214,9 +308,21 @@ static ssize_t timerfd_read(struct file *file, char __user *buf, size_t count,
 			 * callback to avoid DoS attacks specifying a very
 			 * short timer period.
 			 */
+#if !defined(CONFIG_BCM_KF_ANDROID) || !defined(CONFIG_BCM_ANDROID)
 			ticks += hrtimer_forward_now(&ctx->tmr,
 						     ctx->tintv) - 1;
 			hrtimer_restart(&ctx->tmr);
+#else
+			if (isalarm(ctx)) {
+				ticks += alarm_forward_now(
+					&ctx->t.alarm, ctx->tintv) - 1;
+				alarm_restart(&ctx->t.alarm);
+			} else {
+				ticks += hrtimer_forward_now(&ctx->t.tmr,
+							     ctx->tintv) - 1;
+				hrtimer_restart(&ctx->t.tmr);
+			}
+#endif
 		}
 		ctx->expired = 0;
 		ctx->ticks = 0;
@@ -260,7 +366,13 @@ SYSCALL_DEFINE2(timerfd_create, int, clockid, int, flags)
 
 	if ((flags & ~TFD_CREATE_FLAGS) ||
 	    (clockid != CLOCK_MONOTONIC &&
+#if !defined(CONFIG_BCM_KF_ANDROID) || !defined(CONFIG_BCM_ANDROID)
 	     clockid != CLOCK_REALTIME))
+#else
+	     clockid != CLOCK_REALTIME &&
+	     clockid != CLOCK_REALTIME_ALARM &&
+	     clockid != CLOCK_BOOTTIME_ALARM))
+#endif
 		return -EINVAL;
 
 	ctx = kzalloc(sizeof(*ctx), GFP_KERNEL);
@@ -269,7 +381,19 @@ SYSCALL_DEFINE2(timerfd_create, int, clockid, int, flags)
 
 	init_waitqueue_head(&ctx->wqh);
 	ctx->clockid = clockid;
+#if !defined(CONFIG_BCM_KF_ANDROID) || !defined(CONFIG_BCM_ANDROID)
 	hrtimer_init(&ctx->tmr, clockid, HRTIMER_MODE_ABS);
+#else
+
+	if (isalarm(ctx))
+		alarm_init(&ctx->t.alarm,
+			   ctx->clockid == CLOCK_REALTIME_ALARM ?
+			   ALARM_REALTIME : ALARM_BOOTTIME,
+			   timerfd_alarmproc);
+	else
+		hrtimer_init(&ctx->t.tmr, clockid, HRTIMER_MODE_ABS);
+
+#endif
 	ctx->moffs = ktime_get_monotonic_offset();
 
 	ufd = anon_inode_getfd("[timerfd]", &timerfd_fops, ctx,
@@ -310,10 +434,25 @@ SYSCALL_DEFINE4(timerfd_settime, int, ufd, int, flags,
 	 */
 	for (;;) {
 		spin_lock_irq(&ctx->wqh.lock);
+#if !defined(CONFIG_BCM_KF_ANDROID) || !defined(CONFIG_BCM_ANDROID)
 		if (hrtimer_try_to_cancel(&ctx->tmr) >= 0)
 			break;
+#else
+
+		if (isalarm(ctx)) {
+			if (alarm_try_to_cancel(&ctx->t.alarm) >= 0)
+				break;
+		} else {
+			if (hrtimer_try_to_cancel(&ctx->t.tmr) >= 0)
+				break;
+		}
+#endif
 		spin_unlock_irq(&ctx->wqh.lock);
+#if !defined(CONFIG_BCM_KF_ANDROID) || !defined(CONFIG_BCM_ANDROID)
 		hrtimer_wait_for_timer(&ctx->tmr);
+#else
+		cpu_relax();
+#endif
 	}
 
 	/*
@@ -322,8 +461,17 @@ SYSCALL_DEFINE4(timerfd_settime, int, ufd, int, flags,
 	 * We do not update "ticks" and "expired" since the timer will be
 	 * re-programmed again in the following timerfd_setup() call.
 	 */
+#if !defined(CONFIG_BCM_KF_ANDROID) || !defined(CONFIG_BCM_ANDROID)
 	if (ctx->expired && ctx->tintv.tv64)
 		hrtimer_forward_now(&ctx->tmr, ctx->tintv);
+#else
+	if (ctx->expired && ctx->tintv.tv64) {
+		if (isalarm(ctx))
+			alarm_forward_now(&ctx->t.alarm, ctx->tintv);
+		else
+			hrtimer_forward_now(&ctx->t.tmr, ctx->tintv);
+	}
+#endif
 
 	kotmr.it_value = ktime_to_timespec(timerfd_get_remaining(ctx));
 	kotmr.it_interval = ktime_to_timespec(ctx->tintv);
@@ -355,9 +503,24 @@ SYSCALL_DEFINE2(timerfd_gettime, int, ufd, struct itimerspec __user *, otmr)
 	spin_lock_irq(&ctx->wqh.lock);
 	if (ctx->expired && ctx->tintv.tv64) {
 		ctx->expired = 0;
+#if !defined(CONFIG_BCM_KF_ANDROID) || !defined(CONFIG_BCM_ANDROID)
 		ctx->ticks +=
 			hrtimer_forward_now(&ctx->tmr, ctx->tintv) - 1;
 		hrtimer_restart(&ctx->tmr);
+#else
+
+		if (isalarm(ctx)) {
+			ctx->ticks +=
+				alarm_forward_now(
+					&ctx->t.alarm, ctx->tintv) - 1;
+			alarm_restart(&ctx->t.alarm);
+		} else {
+			ctx->ticks +=
+				hrtimer_forward_now(&ctx->t.tmr, ctx->tintv)
+				- 1;
+			hrtimer_restart(&ctx->t.tmr);
+		}
+#endif
 	}
 	kotmr.it_value = ktime_to_timespec(timerfd_get_remaining(ctx));
 	kotmr.it_interval = ktime_to_timespec(ctx->tintv);

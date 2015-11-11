@@ -518,7 +518,11 @@ static void __init build_mem_type_table(void)
 #endif
 
 	for (i = 0; i < 16; i++) {
+#if !defined(CONFIG_BCM_KF_ANDROID) || !defined(CONFIG_BCM_ANDROID)
 		unsigned long v = pgprot_val(protection_map[i]);
+#else
+		pteval_t v = pgprot_val(protection_map[i]);
+#endif
 		protection_map[i] = __pgprot(v | user_pgprot);
 	}
 
@@ -588,6 +592,22 @@ static void __init *early_alloc(unsigned long sz)
 	return early_alloc_aligned(sz, sz);
 }
 
+#if defined(CONFIG_BCM_KF_ANDROID) && defined(CONFIG_BCM_ANDROID)
+static pte_t * __init early_pte_alloc(pmd_t *pmd)
+{
+	if (pmd_none(*pmd) || pmd_bad(*pmd))
+		return early_alloc(PTE_HWTABLE_OFF + PTE_HWTABLE_SIZE);
+	return pmd_page_vaddr(*pmd);
+}
+
+static void __init early_pte_install(pmd_t *pmd, pte_t *pte, unsigned long prot)
+{
+	__pmd_populate(pmd, __pa(pte), prot);
+	BUG_ON(pmd_bad(*pmd));
+}
+
+#endif
+#if !defined(CONFIG_BCM_KF_ANDROID) || !defined(CONFIG_BCM_ANDROID)
 static pte_t * __init early_pte_alloc(pmd_t *pmd, unsigned long addr, unsigned long prot)
 {
 	if (pmd_none(*pmd)) {
@@ -597,21 +617,52 @@ static pte_t * __init early_pte_alloc(pmd_t *pmd, unsigned long addr, unsigned l
 	BUG_ON(pmd_bad(*pmd));
 	return pte_offset_kernel(pmd, addr);
 }
+#else
+#ifdef CONFIG_HIGHMEM
+static pte_t * __init early_pte_alloc_and_install(pmd_t *pmd,
+	unsigned long addr, unsigned long prot)
+{
+	if (pmd_none(*pmd)) {
+		pte_t *pte = early_pte_alloc(pmd);
+		early_pte_install(pmd, pte, prot);
+	}
+	BUG_ON(pmd_bad(*pmd));
+	return pte_offset_kernel(pmd, addr);
+}
+#endif
+#endif
 
 static void __init alloc_init_pte(pmd_t *pmd, unsigned long addr,
 				  unsigned long end, unsigned long pfn,
 				  const struct mem_type *type)
 {
+#if !defined(CONFIG_BCM_KF_ANDROID) || !defined(CONFIG_BCM_ANDROID)
 	pte_t *pte = early_pte_alloc(pmd, addr, type->prot_l1);
+#else
+	pte_t *start_pte = early_pte_alloc(pmd);
+	pte_t *pte = start_pte + pte_index(addr);
+
+	/* If replacing a section mapping, the whole section must be replaced */
+	BUG_ON(pmd_bad(*pmd) && ((addr | end) & ~PMD_MASK));
+
+#endif
 	do {
 		set_pte_ext(pte, pfn_pte(pfn, __pgprot(type->prot_pte)), 0);
 		pfn++;
 	} while (pte++, addr += PAGE_SIZE, addr != end);
+#if defined(CONFIG_BCM_KF_ANDROID) && defined(CONFIG_BCM_ANDROID)
+	early_pte_install(pmd, start_pte, type->prot_l1);
+#endif
 }
 
 static void __init alloc_init_section(pud_t *pud, unsigned long addr,
 				      unsigned long end, phys_addr_t phys,
+#if !defined(CONFIG_BCM_KF_ANDROID) || !defined(CONFIG_BCM_ANDROID)
 				      const struct mem_type *type)
+#else
+				      const struct mem_type *type,
+				      bool force_pages)
+#endif
 {
 	pmd_t *pmd = pmd_offset(pud, addr);
 
@@ -621,7 +672,11 @@ static void __init alloc_init_section(pud_t *pud, unsigned long addr,
 	 * L1 entries, whereas PGDs refer to a group of L1 entries making
 	 * up one logical pointer to an L2 table.
 	 */
+#if !defined(CONFIG_BCM_KF_ANDROID) || !defined(CONFIG_BCM_ANDROID)
 	if (((addr | end | phys) & ~SECTION_MASK) == 0) {
+#else
+	if (((addr | end | phys) & ~SECTION_MASK) == 0 && !force_pages) {
+#endif
 		pmd_t *p = pmd;
 
 #ifndef CONFIG_ARM_LPAE
@@ -645,14 +700,23 @@ static void __init alloc_init_section(pud_t *pud, unsigned long addr,
 }
 
 static void __init alloc_init_pud(pgd_t *pgd, unsigned long addr,
+#if !defined(CONFIG_BCM_KF_ANDROID) || !defined(CONFIG_BCM_ANDROID)
 	unsigned long end, unsigned long phys, const struct mem_type *type)
+#else
+	unsigned long end, unsigned long phys, const struct mem_type *type,
+	bool force_pages)
+#endif
 {
 	pud_t *pud = pud_offset(pgd, addr);
 	unsigned long next;
 
 	do {
 		next = pud_addr_end(addr, end);
+#if !defined(CONFIG_BCM_KF_ANDROID) || !defined(CONFIG_BCM_ANDROID)
 		alloc_init_section(pud, addr, next, phys, type);
+#else
+		alloc_init_section(pud, addr, next, phys, type, force_pages);
+#endif
 		phys += next - addr;
 	} while (pud++, addr = next, addr != end);
 }
@@ -726,7 +790,11 @@ static void __init create_36bit_mapping(struct map_desc *md,
  * offsets, and we take full advantage of sections and
  * supersections.
  */
+#if !defined(CONFIG_BCM_KF_ANDROID) || !defined(CONFIG_BCM_ANDROID)
 static void __init create_mapping(struct map_desc *md)
+#else
+static void __init create_mapping(struct map_desc *md, bool force_pages)
+#endif
 {
 	unsigned long addr, length, end;
 	phys_addr_t phys;
@@ -776,7 +844,11 @@ static void __init create_mapping(struct map_desc *md)
 	do {
 		unsigned long next = pgd_addr_end(addr, end);
 
+#if !defined(CONFIG_BCM_KF_ANDROID) || !defined(CONFIG_BCM_ANDROID)
 		alloc_init_pud(pgd, addr, next, phys, type);
+#else
+		alloc_init_pud(pgd, addr, next, phys, type, force_pages);
+#endif
 
 		phys += next - addr;
 		addr = next;
@@ -797,7 +869,11 @@ void __init iotable_init(struct map_desc *io_desc, int nr)
 	vm = early_alloc_aligned(sizeof(*vm) * nr, __alignof__(*vm));
 
 	for (md = io_desc; nr; md++, nr--) {
+#if !defined(CONFIG_BCM_KF_ANDROID) || !defined(CONFIG_BCM_ANDROID)
 		create_mapping(md);
+#else
+		create_mapping(md, false);
+#endif
 		vm->addr = (void *)(md->virtual & PAGE_MASK);
 		vm->size = PAGE_ALIGN(md->length + (md->virtual & ~PAGE_MASK));
 		vm->phys_addr = __pfn_to_phys(md->pfn); 
@@ -830,7 +906,11 @@ static void __init pmd_empty_section_gap(unsigned long addr)
 	vm = early_alloc_aligned(sizeof(*vm), __alignof__(*vm));
 	vm->addr = (void *)addr;
 	vm->size = SECTION_SIZE;
+#if !defined(CONFIG_BCM_KF_ANDROID) || !defined(CONFIG_BCM_ANDROID)
 	vm->flags = VM_IOREMAP | VM_ARM_STATIC_MAPPING;
+#else
+	vm->flags = VM_IOREMAP | VM_ARM_EMPTY_MAPPING;
+#endif
 	vm->caller = pmd_empty_section_gap;
 	vm_area_add_early(vm);
 }
@@ -843,7 +923,11 @@ static void __init fill_pmd_gaps(void)
 
 	/* we're still single threaded hence no lock needed here */
 	for (vm = vmlist; vm; vm = vm->next) {
+#if !defined(CONFIG_BCM_KF_ANDROID) || !defined(CONFIG_BCM_ANDROID)
 		if (!(vm->flags & VM_ARM_STATIC_MAPPING))
+#else
+		if (!(vm->flags & (VM_ARM_STATIC_MAPPING | VM_ARM_EMPTY_MAPPING)))
+#endif
 			continue;
 		addr = (unsigned long)vm->addr;
 		if (addr < next)
@@ -1149,12 +1233,20 @@ static void __init devicemaps_init(struct machine_desc *mdesc)
 	map.virtual = 0xffff0000;
 	map.length = PAGE_SIZE;
 	map.type = MT_HIGH_VECTORS;
+#if !defined(CONFIG_BCM_KF_ANDROID) || !defined(CONFIG_BCM_ANDROID)
 	create_mapping(&map);
+#else
+	create_mapping(&map, false);
+#endif
 
 	if (!vectors_high()) {
 		map.virtual = 0;
 		map.type = MT_LOW_VECTORS;
+#if !defined(CONFIG_BCM_KF_ANDROID) || !defined(CONFIG_BCM_ANDROID)
 		create_mapping(&map);
+#else
+		create_mapping(&map, false);
+#endif
 	}
 
 	/*
@@ -1177,7 +1269,11 @@ static void __init devicemaps_init(struct machine_desc *mdesc)
 static void __init kmap_init(void)
 {
 #ifdef CONFIG_HIGHMEM
+#if !defined(CONFIG_BCM_KF_ANDROID) || !defined(CONFIG_BCM_ANDROID)
 	pkmap_page_table = early_pte_alloc(pmd_off_k(PKMAP_BASE),
+#else
+	pkmap_page_table = early_pte_alloc_and_install(pmd_off_k(PKMAP_BASE),
+#endif
 		PKMAP_BASE, _PAGE_KERNEL_TABLE);
 #endif
 }
@@ -1185,12 +1281,22 @@ static void __init kmap_init(void)
 static void __init map_lowmem(void)
 {
 	struct memblock_region *reg;
+#if defined(CONFIG_BCM_KF_ANDROID) && defined(CONFIG_BCM_ANDROID)
+	phys_addr_t start;
+	phys_addr_t end;
+	struct map_desc map;
+#endif
 
 	/* Map all the lowmem memory banks. */
 	for_each_memblock(memory, reg) {
+#if !defined(CONFIG_BCM_KF_ANDROID) || !defined(CONFIG_BCM_ANDROID)
 		phys_addr_t start = reg->base;
 		phys_addr_t end = start + reg->size;
 		struct map_desc map;
+#else
+		start = reg->base;
+		end = start + reg->size;
+#endif
 
 		if (end > lowmem_limit)
 			end = lowmem_limit;
@@ -1202,8 +1308,26 @@ static void __init map_lowmem(void)
 		map.length = end - start;
 		map.type = MT_MEMORY;
 
+#if !defined(CONFIG_BCM_KF_ANDROID) || !defined(CONFIG_BCM_ANDROID)
 		create_mapping(&map);
+#else
+		create_mapping(&map, false);
+#endif
 	}
+#if defined(CONFIG_BCM_KF_ANDROID) && defined(CONFIG_BCM_ANDROID)
+
+#ifdef CONFIG_DEBUG_RODATA
+	start = __pa(_stext) & PMD_MASK;
+	end = ALIGN(__pa(__end_rodata), PMD_SIZE);
+
+	map.pfn = __phys_to_pfn(start);
+	map.virtual = __phys_to_virt(start);
+	map.length = end - start;
+	map.type = MT_MEMORY;
+
+	create_mapping(&map, true);
+#endif
+#endif
 }
 
 /*

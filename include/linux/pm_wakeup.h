@@ -49,11 +49,22 @@ struct wakeup_source {
 	ktime_t total_time;
 	ktime_t max_time;
 	ktime_t last_time;
+#if defined(CONFIG_BCM_KF_ANDROID) && defined(CONFIG_BCM_ANDROID)
+	ktime_t start_prevent_time;
+	ktime_t prevent_sleep_time;
+#endif
 	unsigned long		event_count;
 	unsigned long		active_count;
 	unsigned long		relax_count;
+#if !defined(CONFIG_BCM_KF_ANDROID) || !defined(CONFIG_BCM_ANDROID)
 	unsigned long		hit_count;
 	unsigned int		active:1;
+#else
+	unsigned long		expire_count;
+	unsigned long		wakeup_count;
+	bool			active:1;
+	bool			autosleep_enabled:1;
+#endif
 };
 
 #ifdef CONFIG_PM_SLEEP

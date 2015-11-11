@@ -14,10 +14,18 @@
 #include <linux/export.h>
 #include <linux/mm.h>
 #include <linux/err.h>
+#if defined(CONFIG_BCM_KF_ANDROID) && defined(CONFIG_BCM_ANDROID)
+#include <linux/srcu.h>
+#endif
 #include <linux/rcupdate.h>
 #include <linux/sched.h>
 #include <linux/slab.h>
 
+#if defined(CONFIG_BCM_KF_ANDROID) && defined(CONFIG_BCM_ANDROID)
+/* global SRCU for all MMs */
+static struct srcu_struct srcu;
+
+#endif
 /*
  * This function can't run concurrently against mmu_notifier_register
  * because mm->mm_users > 0 during mmu_notifier_register and exit_mmap
@@ -33,12 +41,17 @@
 void __mmu_notifier_release(struct mm_struct *mm)
 {
 	struct mmu_notifier *mn;
+#if !defined(CONFIG_BCM_KF_ANDROID) || !defined(CONFIG_BCM_ANDROID)
 	struct hlist_node *n;
+#else
+	int id;
+#endif
 
 	/*
 	 * RCU here will block mmu_notifier_unregister until
 	 * ->release returns.
 	 */
+#if !defined(CONFIG_BCM_KF_ANDROID) || !defined(CONFIG_BCM_ANDROID)
 	rcu_read_lock();
 	hlist_for_each_entry_rcu(mn, n, &mm->mmu_notifier_mm->list, hlist)
 		/*
@@ -52,11 +65,17 @@ void __mmu_notifier_release(struct mm_struct *mm)
 			mn->ops->release(mn, mm);
 	rcu_read_unlock();
 
+#else
+	id = srcu_read_lock(&srcu);
+#endif
 	spin_lock(&mm->mmu_notifier_mm->lock);
 	while (unlikely(!hlist_empty(&mm->mmu_notifier_mm->list))) {
 		mn = hlist_entry(mm->mmu_notifier_mm->list.first,
 				 struct mmu_notifier,
 				 hlist);
+#if defined(CONFIG_BCM_KF_ANDROID) && defined(CONFIG_BCM_ANDROID)
+
+#endif
 		/*
 		 * We arrived before mmu_notifier_unregister so
 		 * mmu_notifier_unregister will do nothing other than
@@ -64,9 +83,21 @@ void __mmu_notifier_release(struct mm_struct *mm)
 		 * mmu_notifier_unregister to return.
 		 */
 		hlist_del_init_rcu(&mn->hlist);
+#if defined(CONFIG_BCM_KF_ANDROID) && defined(CONFIG_BCM_ANDROID)
+		spin_unlock(&mm->mmu_notifier_mm->lock);
+
+		/*
+		 * Clear sptes. (see 'release' description in mmu_notifier.h)
+		 */
+		if (mn->ops->release)
+			mn->ops->release(mn, mm);
+
+		spin_lock(&mm->mmu_notifier_mm->lock);
+#endif
 	}
 	spin_unlock(&mm->mmu_notifier_mm->lock);
 
+#if !defined(CONFIG_BCM_KF_ANDROID) || !defined(CONFIG_BCM_ANDROID)
 	/*
 	 * synchronize_rcu here prevents mmu_notifier_release to
 	 * return to exit_mmap (which would proceed freeing all pages
@@ -77,6 +108,23 @@ void __mmu_notifier_release(struct mm_struct *mm)
 	 * mm_count is hold by exit_mmap.
 	 */
 	synchronize_rcu();
+#else
+	/*
+	 * All callouts to ->release() which we have done are complete.
+	 * Allow synchronize_srcu() in mmu_notifier_unregister() to complete
+	 */
+	srcu_read_unlock(&srcu, id);
+
+	/*
+	 * mmu_notifier_unregister() may have unlinked a notifier and may
+	 * still be calling out to it.	Additionally, other notifiers
+	 * may have been active via vmtruncate() et. al. Block here
+	 * to ensure that all notifier callouts for this mm have been
+	 * completed and the sptes are really cleaned up before returning
+	 * to exit_mmap().
+	 */
+	synchronize_srcu(&srcu);
+#endif
 }
 
 /*
@@ -89,14 +137,26 @@ int __mmu_notifier_clear_flush_young(struct mm_struct *mm,
 {
 	struct mmu_notifier *mn;
 	struct hlist_node *n;
+#if !defined(CONFIG_BCM_KF_ANDROID) || !defined(CONFIG_BCM_ANDROID)
 	int young = 0;
+#else
+	int young = 0, id;
+#endif
 
+#if !defined(CONFIG_BCM_KF_ANDROID) || !defined(CONFIG_BCM_ANDROID)
 	rcu_read_lock();
+#else
+	id = srcu_read_lock(&srcu);
+#endif
 	hlist_for_each_entry_rcu(mn, n, &mm->mmu_notifier_mm->list, hlist) {
 		if (mn->ops->clear_flush_young)
 			young |= mn->ops->clear_flush_young(mn, mm, address);
 	}
+#if !defined(CONFIG_BCM_KF_ANDROID) || !defined(CONFIG_BCM_ANDROID)
 	rcu_read_unlock();
+#else
+	srcu_read_unlock(&srcu, id);
+#endif
 
 	return young;
 }
@@ -106,9 +166,17 @@ int __mmu_notifier_test_young(struct mm_struct *mm,
 {
 	struct mmu_notifier *mn;
 	struct hlist_node *n;
+#if !defined(CONFIG_BCM_KF_ANDROID) || !defined(CONFIG_BCM_ANDROID)
 	int young = 0;
+#else
+	int young = 0, id;
+#endif
 
+#if !defined(CONFIG_BCM_KF_ANDROID) || !defined(CONFIG_BCM_ANDROID)
 	rcu_read_lock();
+#else
+	id = srcu_read_lock(&srcu);
+#endif
 	hlist_for_each_entry_rcu(mn, n, &mm->mmu_notifier_mm->list, hlist) {
 		if (mn->ops->test_young) {
 			young = mn->ops->test_young(mn, mm, address);
@@ -116,7 +184,11 @@ int __mmu_notifier_test_young(struct mm_struct *mm,
 				break;
 		}
 	}
+#if !defined(CONFIG_BCM_KF_ANDROID) || !defined(CONFIG_BCM_ANDROID)
 	rcu_read_unlock();
+#else
+	srcu_read_unlock(&srcu, id);
+#endif
 
 	return young;
 }
@@ -126,8 +198,15 @@ void __mmu_notifier_change_pte(struct mm_struct *mm, unsigned long address,
 {
 	struct mmu_notifier *mn;
 	struct hlist_node *n;
+#if defined(CONFIG_BCM_KF_ANDROID) && defined(CONFIG_BCM_ANDROID)
+	int id;
+#endif
 
+#if !defined(CONFIG_BCM_KF_ANDROID) || !defined(CONFIG_BCM_ANDROID)
 	rcu_read_lock();
+#else
+	id = srcu_read_lock(&srcu);
+#endif
 	hlist_for_each_entry_rcu(mn, n, &mm->mmu_notifier_mm->list, hlist) {
 		if (mn->ops->change_pte)
 			mn->ops->change_pte(mn, mm, address, pte);
@@ -138,7 +217,11 @@ void __mmu_notifier_change_pte(struct mm_struct *mm, unsigned long address,
 		else if (mn->ops->invalidate_page)
 			mn->ops->invalidate_page(mn, mm, address);
 	}
+#if !defined(CONFIG_BCM_KF_ANDROID) || !defined(CONFIG_BCM_ANDROID)
 	rcu_read_unlock();
+#else
+	srcu_read_unlock(&srcu, id);
+#endif
 }
 
 void __mmu_notifier_invalidate_page(struct mm_struct *mm,
@@ -146,13 +229,24 @@ void __mmu_notifier_invalidate_page(struct mm_struct *mm,
 {
 	struct mmu_notifier *mn;
 	struct hlist_node *n;
+#if defined(CONFIG_BCM_KF_ANDROID) && defined(CONFIG_BCM_ANDROID)
+	int id;
+#endif
 
+#if !defined(CONFIG_BCM_KF_ANDROID) || !defined(CONFIG_BCM_ANDROID)
 	rcu_read_lock();
+#else
+	id = srcu_read_lock(&srcu);
+#endif
 	hlist_for_each_entry_rcu(mn, n, &mm->mmu_notifier_mm->list, hlist) {
 		if (mn->ops->invalidate_page)
 			mn->ops->invalidate_page(mn, mm, address);
 	}
+#if !defined(CONFIG_BCM_KF_ANDROID) || !defined(CONFIG_BCM_ANDROID)
 	rcu_read_unlock();
+#else
+	srcu_read_unlock(&srcu, id);
+#endif
 }
 
 void __mmu_notifier_invalidate_range_start(struct mm_struct *mm,
@@ -160,13 +254,24 @@ void __mmu_notifier_invalidate_range_start(struct mm_struct *mm,
 {
 	struct mmu_notifier *mn;
 	struct hlist_node *n;
+#if defined(CONFIG_BCM_KF_ANDROID) && defined(CONFIG_BCM_ANDROID)
+	int id;
+#endif
 
+#if !defined(CONFIG_BCM_KF_ANDROID) || !defined(CONFIG_BCM_ANDROID)
 	rcu_read_lock();
+#else
+	id = srcu_read_lock(&srcu);
+#endif
 	hlist_for_each_entry_rcu(mn, n, &mm->mmu_notifier_mm->list, hlist) {
 		if (mn->ops->invalidate_range_start)
 			mn->ops->invalidate_range_start(mn, mm, start, end);
 	}
+#if !defined(CONFIG_BCM_KF_ANDROID) || !defined(CONFIG_BCM_ANDROID)
 	rcu_read_unlock();
+#else
+	srcu_read_unlock(&srcu, id);
+#endif
 }
 
 void __mmu_notifier_invalidate_range_end(struct mm_struct *mm,
@@ -174,13 +279,24 @@ void __mmu_notifier_invalidate_range_end(struct mm_struct *mm,
 {
 	struct mmu_notifier *mn;
 	struct hlist_node *n;
+#if defined(CONFIG_BCM_KF_ANDROID) && defined(CONFIG_BCM_ANDROID)
+	int id;
+#endif
 
+#if !defined(CONFIG_BCM_KF_ANDROID) || !defined(CONFIG_BCM_ANDROID)
 	rcu_read_lock();
+#else
+	id = srcu_read_lock(&srcu);
+#endif
 	hlist_for_each_entry_rcu(mn, n, &mm->mmu_notifier_mm->list, hlist) {
 		if (mn->ops->invalidate_range_end)
 			mn->ops->invalidate_range_end(mn, mm, start, end);
 	}
+#if !defined(CONFIG_BCM_KF_ANDROID) || !defined(CONFIG_BCM_ANDROID)
 	rcu_read_unlock();
+#else
+	srcu_read_unlock(&srcu, id);
+#endif
 }
 
 static int do_mmu_notifier_register(struct mmu_notifier *mn,
@@ -192,6 +308,14 @@ static int do_mmu_notifier_register(struct mmu_notifier *mn,
 
 	BUG_ON(atomic_read(&mm->mm_users) <= 0);
 
+#if defined(CONFIG_BCM_KF_ANDROID) && defined(CONFIG_BCM_ANDROID)
+	/*
+	* Verify that mmu_notifier_init() already run and the global srcu is
+	* initialized.
+	*/
+	BUG_ON(!srcu.per_cpu_ref);
+
+#endif
 	ret = -ENOMEM;
 	mmu_notifier_mm = kmalloc(sizeof(struct mmu_notifier_mm), GFP_KERNEL);
 	if (unlikely(!mmu_notifier_mm))
@@ -285,35 +409,74 @@ void mmu_notifier_unregister(struct mmu_notifier *mn, struct mm_struct *mm)
 {
 	BUG_ON(atomic_read(&mm->mm_count) <= 0);
 
+#if defined(CONFIG_BCM_KF_ANDROID) && defined(CONFIG_BCM_ANDROID)
+	spin_lock(&mm->mmu_notifier_mm->lock);
+#endif
 	if (!hlist_unhashed(&mn->hlist)) {
+#if !defined(CONFIG_BCM_KF_ANDROID) || !defined(CONFIG_BCM_ANDROID)
 		/*
 		 * RCU here will force exit_mmap to wait ->release to finish
 		 * before freeing the pages.
 		 */
 		rcu_read_lock();
+#else
+		int id;
+#endif
 
 		/*
 		 * exit_mmap will block in mmu_notifier_release to
 		 * guarantee ->release is called before freeing the
 		 * pages.
 		 */
-		if (mn->ops->release)
-			mn->ops->release(mn, mm);
-		rcu_read_unlock();
+#if defined(CONFIG_BCM_KF_ANDROID) && defined(CONFIG_BCM_ANDROID)
+		id = srcu_read_lock(&srcu);
 
-		spin_lock(&mm->mmu_notifier_mm->lock);
 		hlist_del_rcu(&mn->hlist);
 		spin_unlock(&mm->mmu_notifier_mm->lock);
+
+#endif
+		if (mn->ops->release)
+			mn->ops->release(mn, mm);
+#if !defined(CONFIG_BCM_KF_ANDROID) || !defined(CONFIG_BCM_ANDROID)
+		rcu_read_unlock();
+#endif
+
+#if !defined(CONFIG_BCM_KF_ANDROID) || !defined(CONFIG_BCM_ANDROID)
+		spin_lock(&mm->mmu_notifier_mm->lock);
+		hlist_del_rcu(&mn->hlist);
+#else
+		/*
+		 * Allow __mmu_notifier_release() to complete.
+		 */
+		srcu_read_unlock(&srcu, id);
+	} else
+#endif
+		spin_unlock(&mm->mmu_notifier_mm->lock);
+#if !defined(CONFIG_BCM_KF_ANDROID) || !defined(CONFIG_BCM_ANDROID)
 	}
+#endif
 
 	/*
 	 * Wait any running method to finish, of course including
 	 * ->release if it was run by mmu_notifier_relase instead of us.
 	 */
+#if !defined(CONFIG_BCM_KF_ANDROID) || !defined(CONFIG_BCM_ANDROID)
 	synchronize_rcu();
+#else
+	synchronize_srcu(&srcu);
+#endif
 
 	BUG_ON(atomic_read(&mm->mm_count) <= 0);
 
 	mmdrop(mm);
 }
 EXPORT_SYMBOL_GPL(mmu_notifier_unregister);
+#if defined(CONFIG_BCM_KF_ANDROID) && defined(CONFIG_BCM_ANDROID)
+
+static int __init mmu_notifier_init(void)
+{
+	return init_srcu_struct(&srcu);
+}
+
+module_init(mmu_notifier_init);
+#endif

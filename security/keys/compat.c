@@ -40,12 +40,20 @@ long compat_keyctl_instantiate_key_iov(
 					   ARRAY_SIZE(iovstack),
 					   iovstack, &iov, 1);
 	if (ret < 0)
+#if !defined(CONFIG_BCM_KF_ANDROID) || !defined(CONFIG_BCM_ANDROID)
 		return ret;
+#else
+		goto err;
+#endif
 	if (ret == 0)
 		goto no_payload_free;
 
 	ret = keyctl_instantiate_key_common(id, iov, ioc, ret, ringid);
+#if !defined(CONFIG_BCM_KF_ANDROID) || !defined(CONFIG_BCM_ANDROID)
 
+#else
+err:
+#endif
 	if (iov != iovstack)
 		kfree(iov);
 	return ret;

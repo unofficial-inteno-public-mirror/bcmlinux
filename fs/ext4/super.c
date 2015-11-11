@@ -1599,9 +1599,13 @@ static int parse_options(char *options, struct super_block *sb,
 			 unsigned int *journal_ioprio,
 			 int is_remount)
 {
+#if !defined(CONFIG_BCM_KF_ANDROID) || !defined(CONFIG_BCM_ANDROID)
 #ifdef CONFIG_QUOTA
 	struct ext4_sb_info *sbi = EXT4_SB(sb);
 #endif
+#else /* ANDROID */
+	struct ext4_sb_info *sbi = EXT4_SB(sb);
+#endif /* ANDROID */
 	char *p;
 	substring_t args[MAX_OPT_ARGS];
 	int token;
@@ -1650,6 +1654,18 @@ static int parse_options(char *options, struct super_block *sb,
 		}
 	}
 #endif
+#if defined(CONFIG_BCM_KF_ANDROID) && defined(CONFIG_BCM_ANDROID)
+	if (test_opt(sb, DIOREAD_NOLOCK)) {
+		int blocksize =
+			BLOCK_SIZE << le32_to_cpu(sbi->s_es->s_log_block_size);
+
+		if (blocksize < PAGE_CACHE_SIZE) {
+			ext4_msg(sb, KERN_ERR, "can't mount with "
+				 "dioread_nolock if block size != PAGE_SIZE");
+			return 0;
+		}
+	}
+#endif
 	return 1;
 }
 
@@ -1692,7 +1708,11 @@ static inline void ext4_show_quota_options(struct seq_file *seq,
 
 static const char *token2str(int token)
 {
+#if !defined(CONFIG_BCM_KF_ANDROID) || !defined(CONFIG_BCM_ANDROID)
 	static const struct match_token *t;
+#else
+	const struct match_token *t;
+#endif
 
 	for (t = tokens; t->token != Opt_err; t++)
 		if (t->token == token && !strchr(t->pattern, '='))
@@ -1899,8 +1919,13 @@ static int ext4_fill_flex_info(struct super_block *sb)
 		flex_group = ext4_flex_group(sbi, i);
 		atomic_add(ext4_free_inodes_count(sb, gdp),
 			   &sbi->s_flex_groups[flex_group].free_inodes);
+#if !defined(CONFIG_BCM_KF_ANDROID) || !defined(CONFIG_BCM_ANDROID)
 		atomic_add(ext4_free_group_clusters(sb, gdp),
 			   &sbi->s_flex_groups[flex_group].free_clusters);
+#else
+		atomic64_add(ext4_free_group_clusters(sb, gdp),
+			     &sbi->s_flex_groups[flex_group].free_clusters);
+#endif
 		atomic_add(ext4_used_dirs_count(sb, gdp),
 			   &sbi->s_flex_groups[flex_group].used_dirs);
 	}
@@ -2112,7 +2137,13 @@ static void ext4_orphan_cleanup(struct super_block *sb,
 				__func__, inode->i_ino, inode->i_size);
 			jbd_debug(2, "truncating inode %lu to %lld bytes\n",
 				  inode->i_ino, inode->i_size);
+#if defined(CONFIG_BCM_KF_ANDROID) && defined(CONFIG_BCM_ANDROID)
+			mutex_lock(&inode->i_mutex);
+#endif
 			ext4_truncate(inode);
+#if defined(CONFIG_BCM_KF_ANDROID) && defined(CONFIG_BCM_ANDROID)
+			mutex_unlock(&inode->i_mutex);
+#endif
 			nr_truncates++;
 		} else {
 			ext4_msg(sb, KERN_DEBUG,
@@ -3226,6 +3257,7 @@ static int ext4_fill_super(struct super_block *sb, void *data, int silent)
 			clear_opt(sb, DELALLOC);
 	}
 
+#if !defined(CONFIG_BCM_KF_ANDROID) || !defined(CONFIG_BCM_ANDROID)
 	blocksize = BLOCK_SIZE << le32_to_cpu(es->s_log_block_size);
 	if (test_opt(sb, DIOREAD_NOLOCK)) {
 		if (blocksize < PAGE_SIZE) {
@@ -3235,6 +3267,7 @@ static int ext4_fill_super(struct super_block *sb, void *data, int silent)
 		}
 	}
 
+#endif
 	sb->s_flags = (sb->s_flags & ~MS_POSIXACL) |
 		(test_opt(sb, POSIX_ACL) ? MS_POSIXACL : 0);
 
@@ -3276,6 +3309,9 @@ static int ext4_fill_super(struct super_block *sb, void *data, int silent)
 	if (!ext4_feature_set_ok(sb, (sb->s_flags & MS_RDONLY)))
 		goto failed_mount;
 
+#if defined(CONFIG_BCM_KF_ANDROID) && defined(CONFIG_BCM_ANDROID)
+	blocksize = BLOCK_SIZE << le32_to_cpu(es->s_log_block_size);
+#endif
 	if (blocksize < EXT4_MIN_BLOCK_SIZE ||
 	    blocksize > EXT4_MAX_BLOCK_SIZE) {
 		ext4_msg(sb, KERN_ERR,
@@ -4506,7 +4542,11 @@ static int ext4_remount(struct super_block *sb, int *flags, char *data)
 	}
 
 	ext4_setup_system_zone(sb);
+#if !defined(CONFIG_BCM_KF_ANDROID) || !defined(CONFIG_BCM_ANDROID)
 	if (sbi->s_journal == NULL)
+#else
+	if (sbi->s_journal == NULL && !(old_sb_flags & MS_RDONLY))
+#endif
 		ext4_commit_super(sb, 1);
 
 #ifdef CONFIG_QUOTA

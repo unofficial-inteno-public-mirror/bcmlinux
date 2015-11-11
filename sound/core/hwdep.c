@@ -100,8 +100,16 @@ static int snd_hwdep_open(struct inode *inode, struct file * file)
 	if (hw == NULL)
 		return -ENODEV;
 
+#if !defined(CONFIG_BCM_KF_ANDROID) || !defined(CONFIG_BCM_ANDROID)
 	if (!try_module_get(hw->card->module))
+#else
+	if (!try_module_get(hw->card->module)) {
+		snd_card_unref(hw->card);
+#endif
 		return -EFAULT;
+#if defined(CONFIG_BCM_KF_ANDROID) && defined(CONFIG_BCM_ANDROID)
+	}
+#endif
 
 	init_waitqueue_entry(&wait, current);
 	add_wait_queue(&hw->open_wait, &wait);
@@ -129,6 +137,12 @@ static int snd_hwdep_open(struct inode *inode, struct file * file)
 		mutex_unlock(&hw->open_mutex);
 		schedule();
 		mutex_lock(&hw->open_mutex);
+#if defined(CONFIG_BCM_KF_ANDROID) && defined(CONFIG_BCM_ANDROID)
+		if (hw->card->shutdown) {
+			err = -ENODEV;
+			break;
+		}
+#endif
 		if (signal_pending(current)) {
 			err = -ERESTARTSYS;
 			break;
@@ -148,6 +162,9 @@ static int snd_hwdep_open(struct inode *inode, struct file * file)
 	mutex_unlock(&hw->open_mutex);
 	if (err < 0)
 		module_put(hw->card->module);
+#if defined(CONFIG_BCM_KF_ANDROID) && defined(CONFIG_BCM_ANDROID)
+	snd_card_unref(hw->card);
+#endif
 	return err;
 }
 
@@ -459,12 +476,19 @@ static int snd_hwdep_dev_disconnect(struct snd_device *device)
 		mutex_unlock(&register_mutex);
 		return -EINVAL;
 	}
+#if defined(CONFIG_BCM_KF_ANDROID) && defined(CONFIG_BCM_ANDROID)
+	mutex_lock(&hwdep->open_mutex);
+	wake_up(&hwdep->open_wait);
+#endif
 #ifdef CONFIG_SND_OSSEMUL
 	if (hwdep->ossreg)
 		snd_unregister_oss_device(hwdep->oss_type, hwdep->card, hwdep->device);
 #endif
 	snd_unregister_device(SNDRV_DEVICE_TYPE_HWDEP, hwdep->card, hwdep->device);
 	list_del_init(&hwdep->list);
+#if defined(CONFIG_BCM_KF_ANDROID) && defined(CONFIG_BCM_ANDROID)
+	mutex_unlock(&hwdep->open_mutex);
+#endif
 	mutex_unlock(&register_mutex);
 	return 0;
 }

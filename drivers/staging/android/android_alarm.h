@@ -33,6 +33,7 @@ enum android_alarm_type {
 	/* ANDROID_ALARM_TIME_CHANGE = 16 */
 };
 
+#if !defined(CONFIG_BCM_KF_ANDROID) || !defined(CONFIG_BCM_ANDROID)
 #ifdef __KERNEL__
 
 #include <linux/ktime.h>
@@ -92,6 +93,7 @@ int android_alarm_set_rtc(const struct timespec ts);
 
 #endif
 
+#endif
 enum android_alarm_return_flags {
 	ANDROID_ALARM_RTC_WAKEUP_MASK = 1U << ANDROID_ALARM_RTC_WAKEUP,
 	ANDROID_ALARM_RTC_MASK = 1U << ANDROID_ALARM_RTC,

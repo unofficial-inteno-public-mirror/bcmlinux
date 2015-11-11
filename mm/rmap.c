@@ -56,6 +56,9 @@
 #include <linux/mmu_notifier.h>
 #include <linux/migrate.h>
 #include <linux/hugetlb.h>
+#if defined(CONFIG_BCM_KF_ANDROID) && defined(CONFIG_BCM_ANDROID)
+#include <linux/backing-dev.h>
+#endif
 
 #include <asm/tlbflush.h>
 
@@ -977,11 +980,17 @@ int page_mkclean(struct page *page)
 
 	if (page_mapped(page)) {
 		struct address_space *mapping = page_mapping(page);
+#if !defined(CONFIG_BCM_KF_ANDROID) || !defined(CONFIG_BCM_ANDROID)
 		if (mapping) {
+#else
+		if (mapping)
+#endif
 			ret = page_mkclean_file(mapping, page);
+#if !defined(CONFIG_BCM_KF_ANDROID) || !defined(CONFIG_BCM_ANDROID)
 			if (page_test_and_clear_dirty(page_to_pfn(page), 1))
 				ret = 1;
 		}
+#endif
 	}
 
 	return ret;
@@ -1167,6 +1176,9 @@ void page_add_file_rmap(struct page *page)
  */
 void page_remove_rmap(struct page *page)
 {
+#if defined(CONFIG_BCM_KF_ANDROID) && defined(CONFIG_BCM_ANDROID)
+	struct address_space *mapping = page_mapping(page);
+#endif
 	bool anon = PageAnon(page);
 	bool locked;
 	unsigned long flags;
@@ -1190,7 +1202,11 @@ void page_remove_rmap(struct page *page)
 	 * not if it's in swapcache - there might be another pte slot
 	 * containing the swap entry, but page not yet written to swap.
 	 */
+#if !defined(CONFIG_BCM_KF_ANDROID) || !defined(CONFIG_BCM_ANDROID)
 	if ((!anon || PageSwapCache(page)) &&
+#else
+	if (mapping && !mapping_cap_account_dirty(mapping) &&
+#endif
 	    page_test_and_clear_dirty(page_to_pfn(page), 1))
 		set_page_dirty(page);
 	/*

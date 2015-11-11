@@ -1,0 +1,23 @@
+--- arch/m68k/platform/68360/config.c	2015-11-10 18:01:10.464666928 +0100
++++ arch/m68k/platform/68360/config.c	2015-11-06 12:40:01.000000000 +0100
+@@ -160,7 +160,20 @@
+ 
+   printk(KERN_INFO "\n68360 QUICC support (C) 2000 Lineo Inc.\n");
+ 
++#if defined(CONFIG_UCQUICC) && 0
++  printk(KERN_INFO "uCquicc serial string [%s]\n",getserialnum());
++  p = scc1_hwaddr = gethwaddr(0);
++  printk(KERN_INFO "uCquicc hwaddr %.2x:%.2x:%.2x:%.2x:%.2x:%.2x\n",
++         p[0], p[1], p[2], p[3], p[4], p[5]);
++
++  p = getbenv("APPEND");
++  if (p)
++    strcpy(p,command);
++  else
++    command[0] = 0;
++#else
+   scc1_hwaddr = "\00\01\02\03\04\05";
++#endif
+  
+   mach_reset = BSP_reset;
+ }

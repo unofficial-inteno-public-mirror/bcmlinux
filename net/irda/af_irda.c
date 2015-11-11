@@ -2584,8 +2584,15 @@ bed:
 				    NULL, NULL, NULL);
 
 		/* Check if the we got some results */
+#if !defined(CONFIG_BCM_KF_ANDROID) || !defined(CONFIG_BCM_ANDROID)
 		if (!self->cachedaddr)
 			return -EAGAIN;		/* Didn't find any devices */
+#else
+		if (!self->cachedaddr) {
+			err = -EAGAIN;		/* Didn't find any devices */
+			goto out;
+		}
+#endif
 		daddr = self->cachedaddr;
 		/* Cleanup */
 		self->cachedaddr = 0;

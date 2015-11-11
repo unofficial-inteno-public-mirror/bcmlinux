@@ -240,7 +240,11 @@ static int parse_cmdline(char *devname, char *szstart, char *szlength)
 
 	if (*(szlength) != '+') {
 		devlength = simple_strtoul(szlength, &buffer, 0);
+#if !defined(CONFIG_BCM_KF_ANDROID) || !defined(CONFIG_BCM_ANDROID)
 		devlength = handle_unit(devlength, buffer) - devstart;
+#else
+		devlength = handle_unit(devlength, buffer);
+#endif
 		if (devlength < devstart)
 			goto err_out;
 

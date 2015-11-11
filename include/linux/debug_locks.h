@@ -51,7 +51,11 @@ struct task_struct;
 extern void debug_show_all_locks(void);
 extern void debug_show_held_locks(struct task_struct *task);
 extern void debug_check_no_locks_freed(const void *from, unsigned long len);
+#if !defined(CONFIG_BCM_KF_ANDROID) || !defined(CONFIG_BCM_ANDROID)
 extern void debug_check_no_locks_held(struct task_struct *task);
+#else
+extern void debug_check_no_locks_held(void);
+#endif
 #else
 static inline void debug_show_all_locks(void)
 {
@@ -67,7 +71,11 @@ debug_check_no_locks_freed(const void *from, unsigned long len)
 }
 
 static inline void
+#if !defined(CONFIG_BCM_KF_ANDROID) || !defined(CONFIG_BCM_ANDROID)
 debug_check_no_locks_held(struct task_struct *task)
+#else
+debug_check_no_locks_held(void)
+#endif
 {
 }
 #endif

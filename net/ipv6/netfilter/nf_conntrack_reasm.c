@@ -14,6 +14,10 @@
  * 2 of the License, or (at your option) any later version.
  */
 
+#if defined(CONFIG_BCM_KF_ANDROID) && defined(CONFIG_BCM_ANDROID)
+#define pr_fmt(fmt) "IPv6-nf: " fmt
+
+#endif
 #include <linux/errno.h>
 #include <linux/types.h>
 #include <linux/string.h>
@@ -176,13 +180,22 @@ fq_find(__be32 id, u32 user, struct in6_addr *src, struct in6_addr *dst)
 
 	q = inet_frag_find(&nf_init_frags, &nf_frags, &arg, hash);
 	local_bh_enable();
+#if !defined(CONFIG_BCM_KF_ANDROID) || !defined(CONFIG_BCM_ANDROID)
 	if (q == NULL)
 		goto oom;
+#else
+	if (IS_ERR_OR_NULL(q)) {
+		inet_frag_maybe_warn_overflow(q, pr_fmt());
+		return NULL;
+	}
+#endif
 
 	return container_of(q, struct nf_ct_frag6_queue, q);
+#if !defined(CONFIG_BCM_KF_ANDROID) || !defined(CONFIG_BCM_ANDROID)
 
 oom:
 	return NULL;
+#endif
 }
 
 

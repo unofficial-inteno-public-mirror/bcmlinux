@@ -750,6 +750,10 @@ static int hci_dev_do_close(struct hci_dev *hdev)
 
 	cancel_work_sync(&hdev->le_scan);
 
+#if defined(CONFIG_BCM_KF_ANDROID) && defined(CONFIG_BCM_ANDROID)
+	cancel_delayed_work(&hdev->power_off);
+
+#endif
 	hci_req_cancel(hdev, ENODEV);
 	hci_req_lock(hdev);
 
@@ -1864,6 +1868,10 @@ void hci_unregister_dev(struct hci_dev *hdev)
 	for (i = 0; i < NUM_REASSEMBLY; i++)
 		kfree_skb(hdev->reassembly[i]);
 
+#if defined(CONFIG_BCM_KF_ANDROID) && defined(CONFIG_BCM_ANDROID)
+	cancel_work_sync(&hdev->power_on);
+
+#endif
 	if (!test_bit(HCI_INIT, &hdev->flags) &&
 				!test_bit(HCI_SETUP, &hdev->dev_flags)) {
 		hci_dev_lock(hdev);

@@ -57,7 +57,11 @@ EXPORT_SYMBOL(vfs_getattr);
 
 int vfs_fstat(unsigned int fd, struct kstat *stat)
 {
+#if !defined(CONFIG_BCM_KF_ANDROID) || !defined(CONFIG_BCM_ANDROID)
 	struct file *f = fget(fd);
+#else
+	struct file *f = fget_raw(fd);
+#endif
 	int error = -EBADF;
 
 	if (f) {

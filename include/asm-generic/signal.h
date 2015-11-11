@@ -99,6 +99,12 @@ typedef unsigned long old_sigset_t;
 
 #include <asm-generic/signal-defs.h>
 
+#if defined(CONFIG_BCM_KF_ANDROID) && defined(CONFIG_BCM_ANDROID)
+#ifdef SA_RESTORER
+#define __ARCH_HAS_SA_RESTORER
+#endif
+
+#endif
 struct sigaction {
 	__sighandler_t sa_handler;
 	unsigned long sa_flags;

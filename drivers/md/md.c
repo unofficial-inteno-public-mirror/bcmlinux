@@ -344,6 +344,12 @@ static void md_make_request(struct request_queue *q, struct bio *bio)
 		bio_io_error(bio);
 		return;
 	}
+#if defined(CONFIG_BCM_KF_ANDROID) && defined(CONFIG_BCM_ANDROID)
+	if (mddev->ro == 1 && unlikely(rw == WRITE)) {
+		bio_endio(bio, bio_sectors(bio) == 0 ? 0 : -EROFS);
+		return;
+	}
+#endif
 	smp_rmb(); /* Ensure implications of  'active' are visible */
 	rcu_read_lock();
 	if (mddev->suspended) {
@@ -1143,8 +1149,16 @@ static int super_90_load(struct md_rdev *rdev, struct md_rdev *refdev, int minor
 			ret = 0;
 	}
 	rdev->sectors = rdev->sb_start;
+#if !defined(CONFIG_BCM_KF_ANDROID) || !defined(CONFIG_BCM_ANDROID)
 	/* Limit to 4TB as metadata cannot record more than that */
 	if (rdev->sectors >= (2ULL << 32))
+#else
+	/* Limit to 4TB as metadata cannot record more than that.
+	 * (not needed for Linear and RAID0 as metadata doesn't
+	 * record this size)
+	 */
+	if (rdev->sectors >= (2ULL << 32) && sb->level >= 1)
+#endif
 		rdev->sectors = (2ULL << 32) - 2;
 
 	if (rdev->sectors < ((sector_t)sb->size) * 2 && sb->level >= 1)
@@ -1426,7 +1440,11 @@ super_90_rdev_size_change(struct md_rdev *rdev, sector_t num_sectors)
 	/* Limit to 4TB as metadata cannot record more than that.
 	 * 4TB == 2^32 KB, or 2*2^32 sectors.
 	 */
+#if !defined(CONFIG_BCM_KF_ANDROID) || !defined(CONFIG_BCM_ANDROID)
 	if (num_sectors >= (2ULL << 32))
+#else
+	if (num_sectors >= (2ULL << 32) && rdev->mddev->level >= 1)
+#endif
 		num_sectors = (2ULL << 32) - 2;
 	md_super_write(rdev->mddev, rdev, rdev->sb_start, rdev->sb_size,
 		       rdev->sb_page);
@@ -1802,10 +1820,18 @@ retry:
 			memset(bbp, 0xff, PAGE_SIZE);
 
 			for (i = 0 ; i < bb->count ; i++) {
+#if !defined(CONFIG_BCM_KF_ANDROID) || !defined(CONFIG_BCM_ANDROID)
 				u64 internal_bb = *p++;
+#else
+				u64 internal_bb = p[i];
+#endif
 				u64 store_bb = ((BB_OFFSET(internal_bb) << 10)
 						| BB_LEN(internal_bb));
+#if !defined(CONFIG_BCM_KF_ANDROID) || !defined(CONFIG_BCM_ANDROID)
 				*bbp++ = cpu_to_le64(store_bb);
+#else
+				bbp[i] = cpu_to_le64(store_bb);
+#endif
 			}
 			bb->changed = 0;
 			if (read_seqretry(&bb->lock, seq))
@@ -2879,6 +2905,11 @@ rdev_size_store(struct md_rdev *rdev, const char *buf, size_t len)
 		} else if (!sectors)
 			sectors = (i_size_read(rdev->bdev->bd_inode) >> 9) -
 				rdev->data_offset;
+#if defined(CONFIG_BCM_KF_ANDROID) && defined(CONFIG_BCM_ANDROID)
+		if (!my_mddev->pers->resize)
+			/* Cannot change size for RAID0 or Linear etc */
+			return -EINVAL;
+#endif
 	}
 	if (sectors < my_mddev->dev_sectors)
 		return -EINVAL; /* component must fit device */
@@ -7417,6 +7448,10 @@ static int remove_and_add_spares(struct mddev *mddev)
 			}
 		}
 	}
+#if defined(CONFIG_BCM_KF_ANDROID) && defined(CONFIG_BCM_ANDROID)
+	if (removed)
+		set_bit(MD_CHANGE_DEVS, &mddev->flags);
+#endif
 	return spares;
 }
 
@@ -7430,9 +7465,17 @@ static void reap_sync_thread(struct mddev *mddev)
 	    !test_bit(MD_RECOVERY_REQUESTED, &mddev->recovery)) {
 		/* success...*/
 		/* activate any spares */
+#if !defined(CONFIG_BCM_KF_ANDROID) || !defined(CONFIG_BCM_ANDROID)
 		if (mddev->pers->spare_active(mddev))
+#else
+		if (mddev->pers->spare_active(mddev)) {
+#endif
 			sysfs_notify(&mddev->kobj, NULL,
 				     "degraded");
+#if defined(CONFIG_BCM_KF_ANDROID) && defined(CONFIG_BCM_ANDROID)
+			set_bit(MD_CHANGE_DEVS, &mddev->flags);
+		}
+#endif
 	}
 	if (test_bit(MD_RECOVERY_RESHAPE, &mddev->recovery) &&
 	    mddev->pers->finish_reshape)
@@ -7687,9 +7730,17 @@ int md_is_badblock(struct badblocks *bb, sector_t s, int sectors,
 		   sector_t *first_bad, int *bad_sectors)
 {
 	int hi;
+#if !defined(CONFIG_BCM_KF_ANDROID) || !defined(CONFIG_BCM_ANDROID)
 	int lo = 0;
+#else
+	int lo;
+#endif
 	u64 *p = bb->page;
+#if !defined(CONFIG_BCM_KF_ANDROID) || !defined(CONFIG_BCM_ANDROID)
 	int rv = 0;
+#else
+	int rv;
+#endif
 	sector_t target = s + sectors;
 	unsigned seq;
 
@@ -7704,7 +7755,12 @@ int md_is_badblock(struct badblocks *bb, sector_t s, int sectors,
 
 retry:
 	seq = read_seqbegin(&bb->lock);
+#if !defined(CONFIG_BCM_KF_ANDROID) || !defined(CONFIG_BCM_ANDROID)
 
+#else
+	lo = 0;
+	rv = 0;
+#endif
 	hi = bb->count;
 
 	/* Binary search between lo and hi for 'target'

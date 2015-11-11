@@ -252,6 +252,9 @@ struct uart_ops {
 	void		(*pm)(struct uart_port *, unsigned int state,
 			      unsigned int oldstate);
 	int		(*set_wake)(struct uart_port *, unsigned int state);
+#if defined(CONFIG_BCM_KF_ANDROID) && defined(CONFIG_BCM_ANDROID)
+	void		(*wake_peer)(struct uart_port *);
+#endif
 
 	/*
 	 * Return a string describing the type of the port

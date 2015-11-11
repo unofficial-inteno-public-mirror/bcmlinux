@@ -37,7 +37,9 @@
 static struct alarm_base {
 	spinlock_t		lock;
 	struct timerqueue_head	timerqueue;
+#if !defined(CONFIG_BCM_KF_ANDROID) || !defined(CONFIG_BCM_ANDROID)
 	struct hrtimer		timer;
+#endif
 	ktime_t			(*gettime)(void);
 	clockid_t		base_clockid;
 } alarm_bases[ALARM_NUMTYPE];
@@ -46,6 +48,10 @@ static struct alarm_base {
 static ktime_t freezer_delta;
 static DEFINE_SPINLOCK(freezer_delta_lock);
 
+#if defined(CONFIG_BCM_KF_ANDROID) && defined(CONFIG_BCM_ANDROID)
+static struct wakeup_source *ws;
+
+#endif
 #ifdef CONFIG_RTC_CLASS
 /* rtc timer and device for setting alarm wakeups at suspend */
 static struct rtc_timer		rtctimer;
@@ -59,7 +65,11 @@ static DEFINE_SPINLOCK(rtcdev_lock);
  * If one has not already been chosen, it checks to see if a
  * functional rtc device is available.
  */
+#if !defined(CONFIG_BCM_KF_ANDROID) || !defined(CONFIG_BCM_ANDROID)
 static struct rtc_device *alarmtimer_get_rtcdev(void)
+#else
+struct rtc_device *alarmtimer_get_rtcdev(void)
+#endif
 {
 	unsigned long flags;
 	struct rtc_device *ret;
@@ -115,7 +125,11 @@ static void alarmtimer_rtc_interface_remove(void)
 	class_interface_unregister(&alarmtimer_rtc_interface);
 }
 #else
+#if !defined(CONFIG_BCM_KF_ANDROID) || !defined(CONFIG_BCM_ANDROID)
 static inline struct rtc_device *alarmtimer_get_rtcdev(void)
+#else
+struct rtc_device *alarmtimer_get_rtcdev(void)
+#endif
 {
 	return NULL;
 }
@@ -137,14 +151,21 @@ static inline void alarmtimer_rtc_timer_init(void) { }
  */
 static void alarmtimer_enqueue(struct alarm_base *base, struct alarm *alarm)
 {
+#if defined(CONFIG_BCM_KF_ANDROID) && defined(CONFIG_BCM_ANDROID)
+	if (alarm->state & ALARMTIMER_STATE_ENQUEUED)
+		timerqueue_del(&base->timerqueue, &alarm->node);
+
+#endif
 	timerqueue_add(&base->timerqueue, &alarm->node);
 	alarm->state |= ALARMTIMER_STATE_ENQUEUED;
+#if !defined(CONFIG_BCM_KF_ANDROID) || !defined(CONFIG_BCM_ANDROID)
 
 	if (&alarm->node == timerqueue_getnext(&base->timerqueue)) {
 		hrtimer_try_to_cancel(&base->timer);
 		hrtimer_start(&base->timer, alarm->node.expires,
 				HRTIMER_MODE_ABS);
 	}
+#endif
 }
 
 /**
@@ -159,13 +180,16 @@ static void alarmtimer_enqueue(struct alarm_base *base, struct alarm *alarm)
  */
 static void alarmtimer_remove(struct alarm_base *base, struct alarm *alarm)
 {
+#if !defined(CONFIG_BCM_KF_ANDROID) || !defined(CONFIG_BCM_ANDROID)
 	struct timerqueue_node *next = timerqueue_getnext(&base->timerqueue);
 
+#endif
 	if (!(alarm->state & ALARMTIMER_STATE_ENQUEUED))
 		return;
 
 	timerqueue_del(&base->timerqueue, &alarm->node);
 	alarm->state &= ~ALARMTIMER_STATE_ENQUEUED;
+#if !defined(CONFIG_BCM_KF_ANDROID) || !defined(CONFIG_BCM_ANDROID)
 
 	if (next == &alarm->node) {
 		hrtimer_try_to_cancel(&base->timer);
@@ -174,6 +198,7 @@ static void alarmtimer_remove(struct alarm_base *base, struct alarm *alarm)
 			return;
 		hrtimer_start(&base->timer, next->expires, HRTIMER_MODE_ABS);
 	}
+#endif
 }
 
 
@@ -188,14 +213,22 @@ static void alarmtimer_remove(struct alarm_base *base, struct alarm *alarm)
  */
 static enum hrtimer_restart alarmtimer_fired(struct hrtimer *timer)
 {
+#if !defined(CONFIG_BCM_KF_ANDROID) || !defined(CONFIG_BCM_ANDROID)
 	struct alarm_base *base = container_of(timer, struct alarm_base, timer);
 	struct timerqueue_node *next;
+#else
+	struct alarm *alarm = container_of(timer, struct alarm, timer);
+	struct alarm_base *base = &alarm_bases[alarm->type];
+#endif
 	unsigned long flags;
+#if !defined(CONFIG_BCM_KF_ANDROID) || !defined(CONFIG_BCM_ANDROID)
 	ktime_t now;
+#endif
 	int ret = HRTIMER_NORESTART;
 	int restart = ALARMTIMER_NORESTART;
 
 	spin_lock_irqsave(&base->lock, flags);
+#if !defined(CONFIG_BCM_KF_ANDROID) || !defined(CONFIG_BCM_ANDROID)
 	now = base->gettime();
 	while ((next = timerqueue_getnext(&base->timerqueue))) {
 		struct alarm *alarm;
@@ -215,15 +248,31 @@ static enum hrtimer_restart alarmtimer_fired(struct hrtimer *timer)
 			restart = alarm->function(alarm, now);
 		spin_lock_irqsave(&base->lock, flags);
 		alarm->state &= ~ALARMTIMER_STATE_CALLBACK;
+#else
+	alarmtimer_remove(base, alarm);
+	spin_unlock_irqrestore(&base->lock, flags);
+#endif
 
+#if !defined(CONFIG_BCM_KF_ANDROID) || !defined(CONFIG_BCM_ANDROID)
 		if (restart != ALARMTIMER_NORESTART) {
 			timerqueue_add(&base->timerqueue, &alarm->node);
 			alarm->state |= ALARMTIMER_STATE_ENQUEUED;
 		}
 	}
+#else
+	if (alarm->function)
+		restart = alarm->function(alarm, base->gettime());
+#endif
 
+#if !defined(CONFIG_BCM_KF_ANDROID) || !defined(CONFIG_BCM_ANDROID)
 	if (next) {
 		hrtimer_set_expires(&base->timer, next->expires);
+#else
+	spin_lock_irqsave(&base->lock, flags);
+	if (restart != ALARMTIMER_NORESTART) {
+		hrtimer_set_expires(&alarm->timer, alarm->node.expires);
+		alarmtimer_enqueue(base, alarm);
+#endif
 		ret = HRTIMER_RESTART;
 	}
 	spin_unlock_irqrestore(&base->lock, flags);
@@ -232,6 +281,14 @@ static enum hrtimer_restart alarmtimer_fired(struct hrtimer *timer)
 
 }
 
+#if defined(CONFIG_BCM_KF_ANDROID) && defined(CONFIG_BCM_ANDROID)
+ktime_t alarm_expires_remaining(const struct alarm *alarm)
+{
+	struct alarm_base *base = &alarm_bases[alarm->type];
+	return ktime_sub(alarm->node.expires, base->gettime());
+}
+
+#endif
 #ifdef CONFIG_RTC_CLASS
 /**
  * alarmtimer_suspend - Suspend time callback
@@ -250,6 +307,9 @@ static int alarmtimer_suspend(struct device *dev)
 	unsigned long flags;
 	struct rtc_device *rtc;
 	int i;
+#if defined(CONFIG_BCM_KF_ANDROID) && defined(CONFIG_BCM_ANDROID)
+	int ret;
+#endif
 
 	spin_lock_irqsave(&freezer_delta_lock, flags);
 	min = freezer_delta;
@@ -279,8 +339,15 @@ static int alarmtimer_suspend(struct device *dev)
 	if (min.tv64 == 0)
 		return 0;
 
+#if !defined(CONFIG_BCM_KF_ANDROID) || !defined(CONFIG_BCM_ANDROID)
 	/* XXX - Should we enforce a minimum sleep time? */
 	WARN_ON(min.tv64 < NSEC_PER_SEC);
+#else
+	if (ktime_to_ns(min) < 2 * NSEC_PER_SEC) {
+		__pm_wakeup_event(ws, 2 * MSEC_PER_SEC);
+		return -EBUSY;
+	}
+#endif
 
 	/* Setup an rtc timer to fire that far in the future */
 	rtc_timer_cancel(rtc, &rtctimer);
@@ -288,9 +355,17 @@ static int alarmtimer_suspend(struct device *dev)
 	now = rtc_tm_to_ktime(tm);
 	now = ktime_add(now, min);
 
+#if !defined(CONFIG_BCM_KF_ANDROID) || !defined(CONFIG_BCM_ANDROID)
 	rtc_timer_start(rtc, &rtctimer, now, ktime_set(0, 0));
 
 	return 0;
+#else
+	/* Set alarm, if in the past reject suspend briefly to handle */
+	ret = rtc_timer_start(rtc, &rtctimer, now, ktime_set(0, 0));
+	if (ret < 0)
+		__pm_wakeup_event(ws, 1 * MSEC_PER_SEC);
+	return ret;
+#endif
 }
 #else
 static int alarmtimer_suspend(struct device *dev)
@@ -324,6 +399,11 @@ void alarm_init(struct alarm *alarm, enum alarmtimer_type type,
 		enum alarmtimer_restart (*function)(struct alarm *, ktime_t))
 {
 	timerqueue_init(&alarm->node);
+#if defined(CONFIG_BCM_KF_ANDROID) && defined(CONFIG_BCM_ANDROID)
+	hrtimer_init(&alarm->timer, alarm_bases[type].base_clockid,
+			HRTIMER_MODE_ABS);
+	alarm->timer.function = alarmtimer_fired;
+#endif
 	alarm->function = function;
 	alarm->type = type;
 	alarm->state = ALARMTIMER_STATE_INACTIVE;
@@ -334,16 +414,55 @@ void alarm_init(struct alarm *alarm, enum alarmtimer_type type,
  * @alarm: ptr to alarm to set
  * @start: time to run the alarm
  */
+#if !defined(CONFIG_BCM_KF_ANDROID) || !defined(CONFIG_BCM_ANDROID)
 void alarm_start(struct alarm *alarm, ktime_t start)
+#else
+int alarm_start(struct alarm *alarm, ktime_t start)
+#endif
+{
+	struct alarm_base *base = &alarm_bases[alarm->type];
+	unsigned long flags;
+#if defined(CONFIG_BCM_KF_ANDROID) && defined(CONFIG_BCM_ANDROID)
+	int ret;
+#endif
+
+	spin_lock_irqsave(&base->lock, flags);
+#if !defined(CONFIG_BCM_KF_ANDROID) || !defined(CONFIG_BCM_ANDROID)
+	if (alarmtimer_active(alarm))
+		alarmtimer_remove(base, alarm);
+#endif
+	alarm->node.expires = start;
+	alarmtimer_enqueue(base, alarm);
+#if defined(CONFIG_BCM_KF_ANDROID) && defined(CONFIG_BCM_ANDROID)
+	ret = hrtimer_start(&alarm->timer, alarm->node.expires,
+				HRTIMER_MODE_ABS);
+	spin_unlock_irqrestore(&base->lock, flags);
+	return ret;
+}
+
+/**
+ * alarm_start_relative - Sets a relative alarm to fire
+ * @alarm: ptr to alarm to set
+ * @start: time relative to now to run the alarm
+ */
+int alarm_start_relative(struct alarm *alarm, ktime_t start)
+{
+	struct alarm_base *base = &alarm_bases[alarm->type];
+
+	start = ktime_add(start, base->gettime());
+	return alarm_start(alarm, start);
+}
+
+void alarm_restart(struct alarm *alarm)
 {
 	struct alarm_base *base = &alarm_bases[alarm->type];
 	unsigned long flags;
 
 	spin_lock_irqsave(&base->lock, flags);
-	if (alarmtimer_active(alarm))
-		alarmtimer_remove(base, alarm);
-	alarm->node.expires = start;
+	hrtimer_set_expires(&alarm->timer, alarm->node.expires);
+	hrtimer_restart(&alarm->timer);
 	alarmtimer_enqueue(base, alarm);
+#endif
 	spin_unlock_irqrestore(&base->lock, flags);
 }
 
@@ -358,18 +477,30 @@ int alarm_try_to_cancel(struct alarm *alarm)
 {
 	struct alarm_base *base = &alarm_bases[alarm->type];
 	unsigned long flags;
+#if !defined(CONFIG_BCM_KF_ANDROID) || !defined(CONFIG_BCM_ANDROID)
 	int ret = -1;
 	spin_lock_irqsave(&base->lock, flags);
 
 	if (alarmtimer_callback_running(alarm))
 		goto out;
+#else
+	int ret;
+#endif
 
+#if !defined(CONFIG_BCM_KF_ANDROID) || !defined(CONFIG_BCM_ANDROID)
 	if (alarmtimer_is_queued(alarm)) {
+#else
+	spin_lock_irqsave(&base->lock, flags);
+	ret = hrtimer_try_to_cancel(&alarm->timer);
+	if (ret >= 0)
+#endif
 		alarmtimer_remove(base, alarm);
+#if !defined(CONFIG_BCM_KF_ANDROID) || !defined(CONFIG_BCM_ANDROID)
 		ret = 1;
 	} else
 		ret = 0;
 out:
+#endif
 	spin_unlock_irqrestore(&base->lock, flags);
 	return ret;
 }
@@ -423,6 +554,14 @@ u64 alarm_forward(struct alarm *alarm, ktime_t now, ktime_t interval)
 	return overrun;
 }
 
+#if defined(CONFIG_BCM_KF_ANDROID) && defined(CONFIG_BCM_ANDROID)
+u64 alarm_forward_now(struct alarm *alarm, ktime_t interval)
+{
+	struct alarm_base *base = &alarm_bases[alarm->type];
+
+	return alarm_forward(alarm, base->gettime(), interval);
+}
+#endif
 
 
 
@@ -802,10 +941,12 @@ static int __init alarmtimer_init(void)
 	for (i = 0; i < ALARM_NUMTYPE; i++) {
 		timerqueue_init_head(&alarm_bases[i].timerqueue);
 		spin_lock_init(&alarm_bases[i].lock);
+#if !defined(CONFIG_BCM_KF_ANDROID) || !defined(CONFIG_BCM_ANDROID)
 		hrtimer_init(&alarm_bases[i].timer,
 				alarm_bases[i].base_clockid,
 				HRTIMER_MODE_ABS);
 		alarm_bases[i].timer.function = alarmtimer_fired;
+#endif
 	}
 
 	error = alarmtimer_rtc_interface_setup();
@@ -821,6 +962,9 @@ static int __init alarmtimer_init(void)
 		error = PTR_ERR(pdev);
 		goto out_drv;
 	}
+#if defined(CONFIG_BCM_KF_ANDROID) && defined(CONFIG_BCM_ANDROID)
+	ws = wakeup_source_register("alarmtimer");
+#endif
 	return 0;
 
 out_drv:

@@ -79,6 +79,9 @@ static int rionet_capable = 1;
  * on system trade-offs.
  */
 static struct rio_dev **rionet_active;
+#if defined(CONFIG_BCM_KF_ANDROID) && defined(CONFIG_BCM_ANDROID)
+static int nact;	/* total number of active rionet peers */
+#endif
 
 #define is_rionet_capable(src_ops, dst_ops)			\
 			((src_ops & RIO_SRC_OPS_DATA_MSG) &&	\
@@ -175,10 +178,20 @@ static int rionet_start_xmit(struct sk_buff *skb, struct net_device *ndev)
 	struct ethhdr *eth = (struct ethhdr *)skb->data;
 	u16 destid;
 	unsigned long flags;
+#if defined(CONFIG_BCM_KF_ANDROID) && defined(CONFIG_BCM_ANDROID)
+	int add_num = 1;
+#endif
 
 	spin_lock_irqsave(&rnet->tx_lock, flags);
 
+#if !defined(CONFIG_BCM_KF_ANDROID) || !defined(CONFIG_BCM_ANDROID)
 	if ((rnet->tx_cnt + 1) > RIONET_TX_RING_SIZE) {
+#else
+	if (is_multicast_ether_addr(eth->h_dest))
+		add_num = nact;
+
+	if ((rnet->tx_cnt + add_num) > RIONET_TX_RING_SIZE) {
+#endif
 		netif_stop_queue(ndev);
 		spin_unlock_irqrestore(&rnet->tx_lock, flags);
 		printk(KERN_ERR "%s: BUG! Tx Ring full when queue awake!\n",
@@ -187,11 +200,24 @@ static int rionet_start_xmit(struct sk_buff *skb, struct net_device *ndev)
 	}
 
 	if (is_multicast_ether_addr(eth->h_dest)) {
+#if defined(CONFIG_BCM_KF_ANDROID) && defined(CONFIG_BCM_ANDROID)
+		int count = 0;
+#endif
 		for (i = 0; i < RIO_MAX_ROUTE_ENTRIES(rnet->mport->sys_size);
 				i++)
+#if !defined(CONFIG_BCM_KF_ANDROID) || !defined(CONFIG_BCM_ANDROID)
 			if (rionet_active[i])
+#else
+			if (rionet_active[i]) {
+#endif
 				rionet_queue_tx_msg(skb, ndev,
 						    rionet_active[i]);
+#if defined(CONFIG_BCM_KF_ANDROID) && defined(CONFIG_BCM_ANDROID)
+				if (count)
+					atomic_inc(&skb->users);
+				count++;
+			}
+#endif
 	} else if (RIONET_MAC_MATCH(eth->h_dest)) {
 		destid = RIONET_GET_DESTID(eth->h_dest);
 		if (rionet_active[destid])
@@ -216,14 +242,25 @@ static void rionet_dbell_event(struct rio_mport *mport, void *dev_id, u16 sid, u
 	if (info == RIONET_DOORBELL_JOIN) {
 		if (!rionet_active[sid]) {
 			list_for_each_entry(peer, &rionet_peers, node) {
+#if !defined(CONFIG_BCM_KF_ANDROID) || !defined(CONFIG_BCM_ANDROID)
 				if (peer->rdev->destid == sid)
+#else
+				if (peer->rdev->destid == sid) {
+#endif
 					rionet_active[sid] = peer->rdev;
+#if defined(CONFIG_BCM_KF_ANDROID) && defined(CONFIG_BCM_ANDROID)
+					nact++;
+				}
+#endif
 			}
 			rio_mport_send_doorbell(mport, sid,
 						RIONET_DOORBELL_JOIN);
 		}
 	} else if (info == RIONET_DOORBELL_LEAVE) {
 		rionet_active[sid] = NULL;
+#if defined(CONFIG_BCM_KF_ANDROID) && defined(CONFIG_BCM_ANDROID)
+		nact--;
+#endif
 	} else {
 		if (netif_msg_intr(rnet))
 			printk(KERN_WARNING "%s: unhandled doorbell\n",
@@ -519,6 +556,9 @@ static int rionet_probe(struct rio_dev *rdev, const struct rio_device_id *id)
 
 		rc = rionet_setup_netdev(rdev->net->hport, ndev);
 		rionet_check = 1;
+#if defined(CONFIG_BCM_KF_ANDROID) && defined(CONFIG_BCM_ANDROID)
+		nact = 0;
+#endif
 	}
 
 	/*

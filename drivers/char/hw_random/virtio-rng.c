@@ -89,14 +89,31 @@ static int virtrng_probe(struct virtio_device *vdev)
 {
 	int err;
 
+#if defined(CONFIG_BCM_KF_ANDROID) && defined(CONFIG_BCM_ANDROID)
+	if (vq) {
+		/* We only support one device for now */
+		return -EBUSY;
+	}
+#endif
 	/* We expect a single virtqueue. */
 	vq = virtio_find_single_vq(vdev, random_recv_done, "input");
+#if !defined(CONFIG_BCM_KF_ANDROID) || !defined(CONFIG_BCM_ANDROID)
 	if (IS_ERR(vq))
 		return PTR_ERR(vq);
+#else
+	if (IS_ERR(vq)) {
+		err = PTR_ERR(vq);
+		vq = NULL;
+		return err;
+	}
+#endif
 
 	err = hwrng_register(&virtio_hwrng);
 	if (err) {
 		vdev->config->del_vqs(vdev);
+#if defined(CONFIG_BCM_KF_ANDROID) && defined(CONFIG_BCM_ANDROID)
+		vq = NULL;
+#endif
 		return err;
 	}
 
@@ -108,6 +125,9 @@ static void __devexit virtrng_remove(struct virtio_device *vdev)
 	vdev->config->reset(vdev);
 	hwrng_unregister(&virtio_hwrng);
 	vdev->config->del_vqs(vdev);
+#if defined(CONFIG_BCM_KF_ANDROID) && defined(CONFIG_BCM_ANDROID)
+	vq = NULL;
+#endif
 }
 
 static struct virtio_device_id id_table[] = {

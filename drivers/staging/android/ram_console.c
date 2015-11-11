@@ -16,12 +16,17 @@
 #include <linux/console.h>
 #include <linux/init.h>
 #include <linux/module.h>
+#if defined(CONFIG_BCM_KF_ANDROID) && defined(CONFIG_BCM_ANDROID)
+#include <linux/persistent_ram.h>
+#endif
 #include <linux/platform_device.h>
 #include <linux/proc_fs.h>
 #include <linux/string.h>
 #include <linux/uaccess.h>
 #include <linux/io.h>
+#if !defined(CONFIG_BCM_KF_ANDROID) || !defined(CONFIG_BCM_ANDROID)
 #include "persistent_ram.h"
+#endif
 #include "ram_console.h"
 
 static struct persistent_ram_zone *ram_console_zone;
@@ -50,7 +55,11 @@ void ram_console_enable_console(int enabled)
 		ram_console.flags &= ~CON_ENABLED;
 }
 
+#if !defined(CONFIG_BCM_KF_ANDROID) || !defined(CONFIG_BCM_ANDROID)
 static int __init ram_console_probe(struct platform_device *pdev)
+#else
+static int __devinit ram_console_probe(struct platform_device *pdev)
+#endif
 {
 	struct ram_console_platform_data *pdata = pdev->dev.platform_data;
 	struct persistent_ram_zone *prz;
@@ -78,11 +87,18 @@ static struct platform_driver ram_console_driver = {
 	.driver		= {
 		.name	= "ram_console",
 	},
+#if defined(CONFIG_BCM_KF_ANDROID) && defined(CONFIG_BCM_ANDROID)
+	.probe = ram_console_probe,
+#endif
 };
 
 static int __init ram_console_module_init(void)
 {
+#if !defined(CONFIG_BCM_KF_ANDROID) || !defined(CONFIG_BCM_ANDROID)
 	return platform_driver_probe(&ram_console_driver, ram_console_probe);
+#else
+	return platform_driver_register(&ram_console_driver);
+#endif
 }
 
 #ifndef CONFIG_PRINTK
@@ -100,9 +116,11 @@ static ssize_t ram_console_read_old(struct file *file, char __user *buf,
 	char *str;
 	int ret;
 
+#if !defined(CONFIG_BCM_KF_ANDROID) || !defined(CONFIG_BCM_ANDROID)
 	if (dmesg_restrict && !capable(CAP_SYSLOG))
 		return -EPERM;
 
+#endif
 	/* Main last_kmsg log */
 	if (pos < old_log_size) {
 		count = min(len, (size_t)(old_log_size - pos));

@@ -543,6 +543,7 @@ DECLARE_PER_CPU(int, sd_llc_id);
  */
 static inline struct task_group *task_group(struct task_struct *p)
 {
+#if !defined(CONFIG_BCM_KF_ANDROID) || !defined(CONFIG_BCM_ANDROID)
 	struct task_group *tg;
 	struct cgroup_subsys_state *css;
 
@@ -552,6 +553,9 @@ static inline struct task_group *task_group(struct task_struct *p)
 	tg = container_of(css, struct task_group, css);
 
 	return autogroup_task_group(p, tg);
+#else
+	return p->sched_task_group;
+#endif
 }
 
 /* Change a task's cfs_rq and parent entity if it moves across CPUs/groups */

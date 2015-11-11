@@ -2368,7 +2368,11 @@ static void reset_iter_read(struct ftrace_iterator *iter)
 {
 	iter->pos = 0;
 	iter->func_pos = 0;
+#if !defined(CONFIG_BCM_KF_ANDROID) || !defined(CONFIG_BCM_ANDROID)
 	iter->flags &= ~(FTRACE_ITER_PRINTALL & FTRACE_ITER_HASH);
+#else
+	iter->flags &= ~(FTRACE_ITER_PRINTALL | FTRACE_ITER_HASH);
+#endif
 }
 
 static void *t_start(struct seq_file *m, loff_t *pos)
@@ -3034,8 +3038,13 @@ __unregister_ftrace_function_probe(char *glob, struct ftrace_probe_ops *ops,
 					continue;
 			}
 
+#if !defined(CONFIG_BCM_KF_ANDROID) || !defined(CONFIG_BCM_ANDROID)
 			hlist_del(&entry->node);
 			call_rcu(&entry->rcu, ftrace_free_entry_rcu);
+#else
+			hlist_del_rcu(&entry->node);
+			call_rcu_sched(&entry->rcu, ftrace_free_entry_rcu);
+#endif
 		}
 	}
 	__disable_ftrace_function_probe();
@@ -3845,35 +3854,79 @@ static void ftrace_init_module(struct module *mod,
 	ftrace_process_locs(mod, start, end);
 }
 
+#if !defined(CONFIG_BCM_KF_ANDROID) || !defined(CONFIG_BCM_ANDROID)
 static int ftrace_module_notify(struct notifier_block *self,
 				unsigned long val, void *data)
+#else
+static int ftrace_module_notify_enter(struct notifier_block *self,
+				      unsigned long val, void *data)
+#endif
 {
 	struct module *mod = data;
 
+#if !defined(CONFIG_BCM_KF_ANDROID) || !defined(CONFIG_BCM_ANDROID)
 	switch (val) {
 	case MODULE_STATE_COMING:
+#else
+	if (val == MODULE_STATE_COMING)
+#endif
 		ftrace_init_module(mod, mod->ftrace_callsites,
 				   mod->ftrace_callsites +
 				   mod->num_ftrace_callsites);
+#if !defined(CONFIG_BCM_KF_ANDROID) || !defined(CONFIG_BCM_ANDROID)
 		break;
 	case MODULE_STATE_GOING:
+#else
+	return 0;
+}
+
+static int ftrace_module_notify_exit(struct notifier_block *self,
+				     unsigned long val, void *data)
+{
+	struct module *mod = data;
+
+	if (val == MODULE_STATE_GOING)
+#endif
 		ftrace_release_mod(mod);
+#if !defined(CONFIG_BCM_KF_ANDROID) || !defined(CONFIG_BCM_ANDROID)
 		break;
 	}
+#endif
 
 	return 0;
 }
 #else
+#if !defined(CONFIG_BCM_KF_ANDROID) || !defined(CONFIG_BCM_ANDROID)
 static int ftrace_module_notify(struct notifier_block *self,
 				unsigned long val, void *data)
+#else
+static int ftrace_module_notify_enter(struct notifier_block *self,
+				      unsigned long val, void *data)
+{
+	return 0;
+}
+static int ftrace_module_notify_exit(struct notifier_block *self,
+				     unsigned long val, void *data)
+#endif
 {
 	return 0;
 }
 #endif /* CONFIG_MODULES */
 
+#if !defined(CONFIG_BCM_KF_ANDROID) || !defined(CONFIG_BCM_ANDROID)
 struct notifier_block ftrace_module_nb = {
 	.notifier_call = ftrace_module_notify,
 	.priority = 0,
+#else
+struct notifier_block ftrace_module_enter_nb = {
+	.notifier_call = ftrace_module_notify_enter,
+	.priority = INT_MAX,	/* Run before anything that can use kprobes */
+};
+
+struct notifier_block ftrace_module_exit_nb = {
+	.notifier_call = ftrace_module_notify_exit,
+	.priority = INT_MIN,	/* Run after anything that can remove kprobes */
+#endif
 };
 
 extern unsigned long __start_mcount_loc[];
@@ -3907,9 +3960,21 @@ void __init ftrace_init(void)
 				  __start_mcount_loc,
 				  __stop_mcount_loc);
 
+#if !defined(CONFIG_BCM_KF_ANDROID) || !defined(CONFIG_BCM_ANDROID)
 	ret = register_module_notifier(&ftrace_module_nb);
+#else
+	ret = register_module_notifier(&ftrace_module_enter_nb);
 	if (ret)
+		pr_warning("Failed to register trace ftrace module enter notifier\n");
+
+	ret = register_module_notifier(&ftrace_module_exit_nb);
+#endif
+	if (ret)
+#if !defined(CONFIG_BCM_KF_ANDROID) || !defined(CONFIG_BCM_ANDROID)
 		pr_warning("Failed to register trace ftrace module notifier\n");
+#else
+		pr_warning("Failed to register trace ftrace module exit notifier\n");
+#endif
 
 	set_ftrace_early_filters();
 

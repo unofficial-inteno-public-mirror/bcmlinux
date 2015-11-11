@@ -142,8 +142,10 @@ compat_sys_get_robust_list(int pid, compat_uptr_t __user *head_ptr,
 	if (!futex_cmpxchg_enabled)
 		return -ENOSYS;
 
+#if !defined(CONFIG_BCM_KF_ANDROID) || !defined(CONFIG_BCM_ANDROID)
 	WARN_ONCE(1, "deprecated: get_robust_list will be deleted in 2013.\n");
 
+#endif
 	rcu_read_lock();
 
 	ret = -ESRCH;

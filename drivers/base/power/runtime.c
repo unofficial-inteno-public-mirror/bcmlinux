@@ -282,6 +282,7 @@ static int rpm_callback(int (*cb)(struct device *), struct device *dev)
 	return retval != -EACCES ? retval : -EIO;
 }
 
+#if !defined(CONFIG_BCM_KF_ANDROID) || !defined(CONFIG_BCM_ANDROID)
 struct rpm_qos_data {
 	ktime_t time_now;
 	s64 constraint_ns;
@@ -323,6 +324,7 @@ static int rpm_update_qos_constraint(struct device *dev, void *data)
 	return ret;
 }
 
+#endif
 /**
  * rpm_suspend - Carry out runtime suspend of given device.
  * @dev: Device to suspend.
@@ -349,7 +351,9 @@ static int rpm_suspend(struct device *dev, int rpmflags)
 {
 	int (*callback)(struct device *);
 	struct device *parent = NULL;
+#if !defined(CONFIG_BCM_KF_ANDROID) || !defined(CONFIG_BCM_ANDROID)
 	struct rpm_qos_data qos;
+#endif
 	int retval;
 
 	trace_rpm_suspend(dev, rpmflags);
@@ -430,7 +434,9 @@ static int rpm_suspend(struct device *dev, int rpmflags)
 		goto repeat;
 	}
 
+#if !defined(CONFIG_BCM_KF_ANDROID) || !defined(CONFIG_BCM_ANDROID)
 	dev->power.deferred_resume = false;
+#endif
 	if (dev->power.no_callbacks)
 		goto no_callback;	/* Assume success. */
 
@@ -445,17 +451,25 @@ static int rpm_suspend(struct device *dev, int rpmflags)
 		goto out;
 	}
 
+#if !defined(CONFIG_BCM_KF_ANDROID) || !defined(CONFIG_BCM_ANDROID)
 	qos.constraint_ns = __dev_pm_qos_read_value(dev);
 	if (qos.constraint_ns < 0) {
 		/* Negative constraint means "never suspend". */
+#else
+	if (__dev_pm_qos_read_value(dev) < 0) {
+		/* Negative PM QoS constraint means "never suspend". */
+#endif
 		retval = -EPERM;
 		goto out;
 	}
+#if !defined(CONFIG_BCM_KF_ANDROID) || !defined(CONFIG_BCM_ANDROID)
 	qos.constraint_ns *= NSEC_PER_USEC;
 	qos.time_now = ktime_get();
+#endif
 
 	__update_runtime_status(dev, RPM_SUSPENDING);
 
+#if !defined(CONFIG_BCM_KF_ANDROID) || !defined(CONFIG_BCM_ANDROID)
 	if (!dev->power.ignore_children) {
 		if (dev->power.irq_safe)
 			spin_unlock(&dev->power.lock);
@@ -477,6 +491,7 @@ static int rpm_suspend(struct device *dev, int rpmflags)
 	dev->power.suspend_time = qos.time_now;
 	dev->power.max_time_suspended_ns = qos.constraint_ns ? : -1;
 
+#endif
 	if (dev->pm_domain)
 		callback = dev->pm_domain->ops.runtime_suspend;
 	else if (dev->type && dev->type->pm)
@@ -506,6 +521,9 @@ static int rpm_suspend(struct device *dev, int rpmflags)
 	wake_up_all(&dev->power.wait_queue);
 
 	if (dev->power.deferred_resume) {
+#if defined(CONFIG_BCM_KF_ANDROID) && defined(CONFIG_BCM_ANDROID)
+		dev->power.deferred_resume = false;
+#endif
 		rpm_resume(dev, 0);
 		retval = -EAGAIN;
 		goto out;
@@ -529,8 +547,10 @@ static int rpm_suspend(struct device *dev, int rpmflags)
 
  fail:
 	__update_runtime_status(dev, RPM_ACTIVE);
+#if !defined(CONFIG_BCM_KF_ANDROID) || !defined(CONFIG_BCM_ANDROID)
 	dev->power.suspend_time = ktime_set(0, 0);
 	dev->power.max_time_suspended_ns = -1;
+#endif
 	dev->power.deferred_resume = false;
 	wake_up_all(&dev->power.wait_queue);
 
@@ -652,6 +672,9 @@ static int rpm_resume(struct device *dev, int rpmflags)
 		    || dev->parent->power.runtime_status == RPM_ACTIVE) {
 			atomic_inc(&dev->parent->power.child_count);
 			spin_unlock(&dev->parent->power.lock);
+#if defined(CONFIG_BCM_KF_ANDROID) && defined(CONFIG_BCM_ANDROID)
+			retval = 1;
+#endif
 			goto no_callback;	/* Assume success. */
 		}
 		spin_unlock(&dev->parent->power.lock);
@@ -704,9 +727,11 @@ static int rpm_resume(struct device *dev, int rpmflags)
 	if (dev->power.no_callbacks)
 		goto no_callback;	/* Assume success. */
 
+#if !defined(CONFIG_BCM_KF_ANDROID) || !defined(CONFIG_BCM_ANDROID)
 	dev->power.suspend_time = ktime_set(0, 0);
 	dev->power.max_time_suspended_ns = -1;
 
+#endif
 	__update_runtime_status(dev, RPM_RESUMING);
 
 	if (dev->pm_domain)
@@ -735,7 +760,11 @@ static int rpm_resume(struct device *dev, int rpmflags)
 	}
 	wake_up_all(&dev->power.wait_queue);
 
+#if !defined(CONFIG_BCM_KF_ANDROID) || !defined(CONFIG_BCM_ANDROID)
 	if (!retval)
+#else
+	if (retval >= 0)
+#endif
 		rpm_idle(dev, RPM_ASYNC);
 
  out:
@@ -1369,9 +1398,11 @@ void pm_runtime_init(struct device *dev)
 	setup_timer(&dev->power.suspend_timer, pm_suspend_timer_fn,
 			(unsigned long)dev);
 
+#if !defined(CONFIG_BCM_KF_ANDROID) || !defined(CONFIG_BCM_ANDROID)
 	dev->power.suspend_time = ktime_set(0, 0);
 	dev->power.max_time_suspended_ns = -1;
 
+#endif
 	init_waitqueue_head(&dev->power.wait_queue);
 }
 
@@ -1389,6 +1420,7 @@ void pm_runtime_remove(struct device *dev)
 	if (dev->power.irq_safe && dev->parent)
 		pm_runtime_put_sync(dev->parent);
 }
+#if !defined(CONFIG_BCM_KF_ANDROID) || !defined(CONFIG_BCM_ANDROID)
 
 /**
  * pm_runtime_update_max_time_suspended - Update device's suspend time data.
@@ -1414,3 +1446,4 @@ void pm_runtime_update_max_time_suspended(struct device *dev, s64 delta_ns)
 
 	spin_unlock_irqrestore(&dev->power.lock, flags);
 }
+#endif

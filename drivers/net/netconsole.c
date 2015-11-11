@@ -626,6 +626,9 @@ static int netconsole_netdev_event(struct notifier_block *this,
 		goto done;
 
 	spin_lock_irqsave(&target_list_lock, flags);
+#if defined(CONFIG_BCM_KF_ANDROID) && defined(CONFIG_BCM_ANDROID)
+restart:
+#endif
 	list_for_each_entry(nt, &target_list, list) {
 		netconsole_target_get(nt);
 		if (nt->np.dev == dev) {
@@ -639,6 +642,7 @@ static int netconsole_netdev_event(struct notifier_block *this,
 				/*
 				 * rtnl_lock already held
 				 */
+#if !defined(CONFIG_BCM_KF_ANDROID) || !defined(CONFIG_BCM_ANDROID)
 				if (nt->np.dev) {
 					spin_unlock_irqrestore(
 							      &target_list_lock,
@@ -650,9 +654,21 @@ static int netconsole_netdev_event(struct notifier_block *this,
 					nt->np.dev = NULL;
 					netconsole_target_put(nt);
 				}
+#else
+				spin_unlock_irqrestore(&target_list_lock, flags);
+				__netpoll_cleanup(&nt->np);
+				spin_lock_irqsave(&target_list_lock, flags);
+				dev_put(nt->np.dev);
+				nt->np.dev = NULL;
+#endif
 				nt->enabled = 0;
 				stopped = true;
+#if !defined(CONFIG_BCM_KF_ANDROID) || !defined(CONFIG_BCM_ANDROID)
 				break;
+#else
+				netconsole_target_put(nt);
+				goto restart;
+#endif
 			}
 		}
 		netconsole_target_put(nt);

@@ -40,6 +40,13 @@
 
 #include <net/bluetooth/bluetooth.h>
 
+#if defined(CONFIG_BCM_KF_ANDROID) && defined(CONFIG_BCM_ANDROID)
+#ifndef CONFIG_BT_SOCK_DEBUG
+#undef  BT_DBG
+#define BT_DBG(D...)
+#endif
+
+#endif
 #define VERSION "2.16"
 
 /* Bluetooth sockets */
@@ -122,11 +129,44 @@ int bt_sock_unregister(int proto)
 }
 EXPORT_SYMBOL(bt_sock_unregister);
 
+#if defined(CONFIG_BCM_KF_ANDROID) && defined(CONFIG_BCM_ANDROID)
+#ifdef CONFIG_PARANOID_NETWORK
+static inline int current_has_bt_admin(void)
+{
+	return !current_euid();
+}
+
+static inline int current_has_bt(void)
+{
+	return current_has_bt_admin();
+}
+# else
+static inline int current_has_bt_admin(void)
+{
+	return 1;
+}
+
+static inline int current_has_bt(void)
+{
+	return 1;
+}
+#endif
+
+#endif
 static int bt_sock_create(struct net *net, struct socket *sock, int proto,
 			  int kern)
 {
 	int err;
 
+#if defined(CONFIG_BCM_KF_ANDROID) && defined(CONFIG_BCM_ANDROID)
+	if (proto == BTPROTO_RFCOMM || proto == BTPROTO_SCO ||
+			proto == BTPROTO_L2CAP) {
+		if (!current_has_bt())
+			return -EPERM;
+	} else if (!current_has_bt_admin())
+		return -EPERM;
+
+#endif
 	if (net != &init_net)
 		return -EAFNOSUPPORT;
 

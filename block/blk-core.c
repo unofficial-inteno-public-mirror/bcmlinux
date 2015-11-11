@@ -605,7 +605,11 @@ blk_init_allocated_queue(struct request_queue *q, request_fn_proc *rfn,
 	q->request_fn		= rfn;
 	q->prep_rq_fn		= NULL;
 	q->unprep_rq_fn		= NULL;
+#if !defined(CONFIG_BCM_KF_ANDROID) || !defined(CONFIG_BCM_ANDROID)
 	q->queue_flags		= QUEUE_FLAG_DEFAULT;
+#else
+	q->queue_flags		|= QUEUE_FLAG_DEFAULT;
+#endif
 
 	/* Override internal queue lock with supplied lock pointer */
 	if (lock)

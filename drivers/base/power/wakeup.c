@@ -14,16 +14,25 @@
 #include <linux/suspend.h>
 #include <linux/seq_file.h>
 #include <linux/debugfs.h>
+#if defined(CONFIG_BCM_KF_ANDROID) && defined(CONFIG_BCM_ANDROID)
+#include <trace/events/power.h>
+#endif
 
 #include "power.h"
 
+#if !defined(CONFIG_BCM_KF_ANDROID) || !defined(CONFIG_BCM_ANDROID)
 #define TIMEOUT		100
 
+#endif
 /*
  * If set, the suspend/hibernate code will abort transitions to a sleep state
  * if wakeup events are registered during or immediately before the transition.
  */
+#if !defined(CONFIG_BCM_KF_ANDROID) || !defined(CONFIG_BCM_ANDROID)
 bool events_check_enabled;
+#else
+bool events_check_enabled __read_mostly;
+#endif
 
 /*
  * Combined counters of registered wakeup events and wakeup events in progress.
@@ -52,6 +61,10 @@ static void pm_wakeup_timer_fn(unsigned long data);
 
 static LIST_HEAD(wakeup_sources);
 
+#if defined(CONFIG_BCM_KF_ANDROID) && defined(CONFIG_BCM_ANDROID)
+static DECLARE_WAIT_QUEUE_HEAD(wakeup_count_wait_queue);
+
+#endif
 /**
  * wakeup_source_prepare - Prepare a new wakeup source for initialization.
  * @ws: Wakeup source to prepare.
@@ -126,16 +139,31 @@ EXPORT_SYMBOL_GPL(wakeup_source_destroy);
  */
 void wakeup_source_add(struct wakeup_source *ws)
 {
+#if defined(CONFIG_BCM_KF_ANDROID) && defined(CONFIG_BCM_ANDROID)
+	unsigned long flags;
+
+#endif
 	if (WARN_ON(!ws))
 		return;
 
 	spin_lock_init(&ws->lock);
 	setup_timer(&ws->timer, pm_wakeup_timer_fn, (unsigned long)ws);
 	ws->active = false;
+#if defined(CONFIG_BCM_KF_ANDROID) && defined(CONFIG_BCM_ANDROID)
+	ws->last_time = ktime_get();
+#endif
 
+#if !defined(CONFIG_BCM_KF_ANDROID) || !defined(CONFIG_BCM_ANDROID)
 	spin_lock_irq(&events_lock);
+#else
+	spin_lock_irqsave(&events_lock, flags);
+#endif
 	list_add_rcu(&ws->entry, &wakeup_sources);
+#if !defined(CONFIG_BCM_KF_ANDROID) || !defined(CONFIG_BCM_ANDROID)
 	spin_unlock_irq(&events_lock);
+#else
+	spin_unlock_irqrestore(&events_lock, flags);
+#endif
 }
 EXPORT_SYMBOL_GPL(wakeup_source_add);
 
@@ -145,12 +173,24 @@ EXPORT_SYMBOL_GPL(wakeup_source_add);
  */
 void wakeup_source_remove(struct wakeup_source *ws)
 {
+#if defined(CONFIG_BCM_KF_ANDROID) && defined(CONFIG_BCM_ANDROID)
+	unsigned long flags;
+
+#endif
 	if (WARN_ON(!ws))
 		return;
 
+#if !defined(CONFIG_BCM_KF_ANDROID) || !defined(CONFIG_BCM_ANDROID)
 	spin_lock_irq(&events_lock);
+#else
+	spin_lock_irqsave(&events_lock, flags);
+#endif
 	list_del_rcu(&ws->entry);
+#if !defined(CONFIG_BCM_KF_ANDROID) || !defined(CONFIG_BCM_ANDROID)
 	spin_unlock_irq(&events_lock);
+#else
+	spin_unlock_irqrestore(&events_lock, flags);
+#endif
 	synchronize_rcu();
 }
 EXPORT_SYMBOL_GPL(wakeup_source_remove);
@@ -374,12 +414,41 @@ EXPORT_SYMBOL_GPL(device_set_wakeup_enable);
  */
 static void wakeup_source_activate(struct wakeup_source *ws)
 {
+#if defined(CONFIG_BCM_KF_ANDROID) && defined(CONFIG_BCM_ANDROID)
+	unsigned int cec;
+
+#endif
 	ws->active = true;
 	ws->active_count++;
 	ws->last_time = ktime_get();
+#if defined(CONFIG_BCM_KF_ANDROID) && defined(CONFIG_BCM_ANDROID)
+	if (ws->autosleep_enabled)
+		ws->start_prevent_time = ws->last_time;
+#endif
 
 	/* Increment the counter of events in progress. */
+#if !defined(CONFIG_BCM_KF_ANDROID) || !defined(CONFIG_BCM_ANDROID)
 	atomic_inc(&combined_event_count);
+#else
+	cec = atomic_inc_return(&combined_event_count);
+
+	trace_wakeup_source_activate(ws->name, cec);
+}
+
+/**
+ * wakeup_source_report_event - Report wakeup event using the given source.
+ * @ws: Wakeup source to report the event for.
+ */
+static void wakeup_source_report_event(struct wakeup_source *ws)
+{
+	ws->event_count++;
+	/* This is racy, but the counter is approximate anyway. */
+	if (events_check_enabled)
+		ws->wakeup_count++;
+
+	if (!ws->active)
+		wakeup_source_activate(ws);
+#endif
 }
 
 /**
@@ -397,10 +466,14 @@ void __pm_stay_awake(struct wakeup_source *ws)
 
 	spin_lock_irqsave(&ws->lock, flags);
 
+#if !defined(CONFIG_BCM_KF_ANDROID) || !defined(CONFIG_BCM_ANDROID)
 	ws->event_count++;
 	if (!ws->active)
 		wakeup_source_activate(ws);
 
+#else
+	wakeup_source_report_event(ws);
+#endif
 	del_timer(&ws->timer);
 	ws->timer_expires = 0;
 
@@ -432,6 +505,19 @@ void pm_stay_awake(struct device *dev)
 }
 EXPORT_SYMBOL_GPL(pm_stay_awake);
 
+#if defined(CONFIG_BCM_KF_ANDROID) && defined(CONFIG_BCM_ANDROID)
+#ifdef CONFIG_PM_AUTOSLEEP
+static void update_prevent_sleep_time(struct wakeup_source *ws, ktime_t now)
+{
+	ktime_t delta = ktime_sub(now, ws->start_prevent_time);
+	ws->prevent_sleep_time = ktime_add(ws->prevent_sleep_time, delta);
+}
+#else
+static inline void update_prevent_sleep_time(struct wakeup_source *ws,
+					     ktime_t now) {}
+#endif
+
+#endif
 /**
  * wakup_source_deactivate - Mark given wakeup source as inactive.
  * @ws: Wakeup source to handle.
@@ -442,6 +528,9 @@ EXPORT_SYMBOL_GPL(pm_stay_awake);
  */
 static void wakeup_source_deactivate(struct wakeup_source *ws)
 {
+#if defined(CONFIG_BCM_KF_ANDROID) && defined(CONFIG_BCM_ANDROID)
+	unsigned int cnt, inpr, cec;
+#endif
 	ktime_t duration;
 	ktime_t now;
 
@@ -468,14 +557,31 @@ static void wakeup_source_deactivate(struct wakeup_source *ws)
 	if (ktime_to_ns(duration) > ktime_to_ns(ws->max_time))
 		ws->max_time = duration;
 
+#if defined(CONFIG_BCM_KF_ANDROID) && defined(CONFIG_BCM_ANDROID)
+	ws->last_time = now;
+#endif
 	del_timer(&ws->timer);
 	ws->timer_expires = 0;
 
+#if defined(CONFIG_BCM_KF_ANDROID) && defined(CONFIG_BCM_ANDROID)
+	if (ws->autosleep_enabled)
+		update_prevent_sleep_time(ws, now);
+
+#endif
 	/*
 	 * Increment the counter of registered wakeup events and decrement the
 	 * couter of wakeup events in progress simultaneously.
 	 */
+#if !defined(CONFIG_BCM_KF_ANDROID) || !defined(CONFIG_BCM_ANDROID)
 	atomic_add(MAX_IN_PROGRESS, &combined_event_count);
+#else
+	cec = atomic_add_return(MAX_IN_PROGRESS, &combined_event_count);
+	trace_wakeup_source_deactivate(ws->name, cec);
+
+	split_counters(&cnt, &inpr);
+	if (!inpr && waitqueue_active(&wakeup_count_wait_queue))
+		wake_up(&wakeup_count_wait_queue);
+#endif
 }
 
 /**
@@ -536,8 +642,16 @@ static void pm_wakeup_timer_fn(unsigned long data)
 	spin_lock_irqsave(&ws->lock, flags);
 
 	if (ws->active && ws->timer_expires
+#if !defined(CONFIG_BCM_KF_ANDROID) || !defined(CONFIG_BCM_ANDROID)
 	    && time_after_eq(jiffies, ws->timer_expires))
+#else
+	    && time_after_eq(jiffies, ws->timer_expires)) {
+#endif
 		wakeup_source_deactivate(ws);
+#if defined(CONFIG_BCM_KF_ANDROID) && defined(CONFIG_BCM_ANDROID)
+		ws->expire_count++;
+	}
+#endif
 
 	spin_unlock_irqrestore(&ws->lock, flags);
 }
@@ -564,9 +678,13 @@ void __pm_wakeup_event(struct wakeup_source *ws, unsigned int msec)
 
 	spin_lock_irqsave(&ws->lock, flags);
 
+#if !defined(CONFIG_BCM_KF_ANDROID) || !defined(CONFIG_BCM_ANDROID)
 	ws->event_count++;
 	if (!ws->active)
 		wakeup_source_activate(ws);
+#else
+	wakeup_source_report_event(ws);
+#endif
 
 	if (!msec) {
 		wakeup_source_deactivate(ws);
@@ -608,21 +726,49 @@ void pm_wakeup_event(struct device *dev, unsigned int msec)
 }
 EXPORT_SYMBOL_GPL(pm_wakeup_event);
 
+#if !defined(CONFIG_BCM_KF_ANDROID) || !defined(CONFIG_BCM_ANDROID)
 /**
  * pm_wakeup_update_hit_counts - Update hit counts of all active wakeup sources.
  */
 static void pm_wakeup_update_hit_counts(void)
+#else
+static void print_active_wakeup_sources(void)
+#endif
 {
+#if !defined(CONFIG_BCM_KF_ANDROID) || !defined(CONFIG_BCM_ANDROID)
 	unsigned long flags;
+#endif
 	struct wakeup_source *ws;
+#if defined(CONFIG_BCM_KF_ANDROID) && defined(CONFIG_BCM_ANDROID)
+	int active = 0;
+	struct wakeup_source *last_activity_ws = NULL;
+#endif
 
 	rcu_read_lock();
 	list_for_each_entry_rcu(ws, &wakeup_sources, entry) {
+#if !defined(CONFIG_BCM_KF_ANDROID) || !defined(CONFIG_BCM_ANDROID)
 		spin_lock_irqsave(&ws->lock, flags);
 		if (ws->active)
 			ws->hit_count++;
 		spin_unlock_irqrestore(&ws->lock, flags);
+#else
+		if (ws->active) {
+			pr_info("active wakeup source: %s\n", ws->name);
+			active = 1;
+		} else if (!active &&
+			   (!last_activity_ws ||
+			    ktime_to_ns(ws->last_time) >
+			    ktime_to_ns(last_activity_ws->last_time))) {
+			last_activity_ws = ws;
+		}
+#endif
 	}
+#if defined(CONFIG_BCM_KF_ANDROID) && defined(CONFIG_BCM_ANDROID)
+
+	if (!active && last_activity_ws)
+		pr_info("last active wakeup source: %s\n",
+			last_activity_ws->name);
+#endif
 	rcu_read_unlock();
 }
 
@@ -649,7 +795,12 @@ bool pm_wakeup_pending(void)
 	}
 	spin_unlock_irqrestore(&events_lock, flags);
 	if (ret)
+#if !defined(CONFIG_BCM_KF_ANDROID) || !defined(CONFIG_BCM_ANDROID)
 		pm_wakeup_update_hit_counts();
+#else
+		print_active_wakeup_sources();
+
+#endif
 	return ret;
 }
 
@@ -664,16 +815,36 @@ bool pm_wakeup_pending(void)
  * drop down to zero has been interrupted by a signal (and the current number
  * of wakeup events being processed is still nonzero).  Otherwise return 'true'.
  */
+#if !defined(CONFIG_BCM_KF_ANDROID) || !defined(CONFIG_BCM_ANDROID)
 bool pm_get_wakeup_count(unsigned int *count)
+#else
+bool pm_get_wakeup_count(unsigned int *count, bool block)
+#endif
 {
 	unsigned int cnt, inpr;
 
+#if !defined(CONFIG_BCM_KF_ANDROID) || !defined(CONFIG_BCM_ANDROID)
 	for (;;) {
 		split_counters(&cnt, &inpr);
 		if (inpr == 0 || signal_pending(current))
 			break;
 		pm_wakeup_update_hit_counts();
 		schedule_timeout_interruptible(msecs_to_jiffies(TIMEOUT));
+#else
+	if (block) {
+		DEFINE_WAIT(wait);
+
+		for (;;) {
+			prepare_to_wait(&wakeup_count_wait_queue, &wait,
+					TASK_INTERRUPTIBLE);
+			split_counters(&cnt, &inpr);
+			if (inpr == 0 || signal_pending(current))
+				break;
+
+			schedule();
+		}
+		finish_wait(&wakeup_count_wait_queue, &wait);
+#endif
 	}
 
 	split_counters(&cnt, &inpr);
@@ -694,20 +865,61 @@ bool pm_get_wakeup_count(unsigned int *count)
 bool pm_save_wakeup_count(unsigned int count)
 {
 	unsigned int cnt, inpr;
+#if defined(CONFIG_BCM_KF_ANDROID) && defined(CONFIG_BCM_ANDROID)
+	unsigned long flags;
+#endif
 
 	events_check_enabled = false;
+#if !defined(CONFIG_BCM_KF_ANDROID) || !defined(CONFIG_BCM_ANDROID)
 	spin_lock_irq(&events_lock);
+#else
+	spin_lock_irqsave(&events_lock, flags);
+#endif
 	split_counters(&cnt, &inpr);
 	if (cnt == count && inpr == 0) {
 		saved_count = count;
 		events_check_enabled = true;
 	}
+#if !defined(CONFIG_BCM_KF_ANDROID) || !defined(CONFIG_BCM_ANDROID)
 	spin_unlock_irq(&events_lock);
 	if (!events_check_enabled)
 		pm_wakeup_update_hit_counts();
+#else
+	spin_unlock_irqrestore(&events_lock, flags);
+#endif
 	return events_check_enabled;
 }
 
+#if defined(CONFIG_BCM_KF_ANDROID) && defined(CONFIG_BCM_ANDROID)
+#ifdef CONFIG_PM_AUTOSLEEP
+/**
+ * pm_wakep_autosleep_enabled - Modify autosleep_enabled for all wakeup sources.
+ * @enabled: Whether to set or to clear the autosleep_enabled flags.
+ */
+void pm_wakep_autosleep_enabled(bool set)
+{
+	struct wakeup_source *ws;
+	ktime_t now = ktime_get();
+
+	rcu_read_lock();
+	list_for_each_entry_rcu(ws, &wakeup_sources, entry) {
+		spin_lock_irq(&ws->lock);
+		if (ws->autosleep_enabled != set) {
+			ws->autosleep_enabled = set;
+			if (ws->active) {
+				if (set)
+					ws->start_prevent_time = now;
+				else
+					update_prevent_sleep_time(ws, now);
+			}
+		}
+		spin_unlock_irq(&ws->lock);
+	}
+	rcu_read_unlock();
+}
+#endif /* CONFIG_PM_AUTOSLEEP */
+
+#endif
 static struct dentry *wakeup_sources_stats_dentry;
 
 /**
@@ -723,27 +935,57 @@ static int print_wakeup_source_stats(struct seq_file *m,
 	ktime_t max_time;
 	unsigned long active_count;
 	ktime_t active_time;
+#if defined(CONFIG_BCM_KF_ANDROID) && defined(CONFIG_BCM_ANDROID)
+	ktime_t prevent_sleep_time;
+#endif
 	int ret;
 
 	spin_lock_irqsave(&ws->lock, flags);
 
 	total_time = ws->total_time;
 	max_time = ws->max_time;
+#if defined(CONFIG_BCM_KF_ANDROID) && defined(CONFIG_BCM_ANDROID)
+	prevent_sleep_time = ws->prevent_sleep_time;
+#endif
 	active_count = ws->active_count;
 	if (ws->active) {
+#if !defined(CONFIG_BCM_KF_ANDROID) || !defined(CONFIG_BCM_ANDROID)
 		active_time = ktime_sub(ktime_get(), ws->last_time);
+#else
+		ktime_t now = ktime_get();
+
+		active_time = ktime_sub(now, ws->last_time);
+#endif
 		total_time = ktime_add(total_time, active_time);
 		if (active_time.tv64 > max_time.tv64)
 			max_time = active_time;
+#if defined(CONFIG_BCM_KF_ANDROID) && defined(CONFIG_BCM_ANDROID)
+
+		if (ws->autosleep_enabled)
+			prevent_sleep_time = ktime_add(prevent_sleep_time,
+				ktime_sub(now, ws->start_prevent_time));
+#endif
 	} else {
 		active_time = ktime_set(0, 0);
 	}
 
+#if !defined(CONFIG_BCM_KF_ANDROID) || !defined(CONFIG_BCM_ANDROID)
 	ret = seq_printf(m, "%-12s\t%lu\t\t%lu\t\t%lu\t\t"
 			"%lld\t\t%lld\t\t%lld\t\t%lld\n",
 			ws->name, active_count, ws->event_count, ws->hit_count,
+#else
+	ret = seq_printf(m, "%-12s\t%lu\t\t%lu\t\t%lu\t\t%lu\t\t"
+			"%lld\t\t%lld\t\t%lld\t\t%lld\t\t%lld\n",
+			ws->name, active_count, ws->event_count,
+			ws->wakeup_count, ws->expire_count,
+#endif
 			ktime_to_ms(active_time), ktime_to_ms(total_time),
+#if !defined(CONFIG_BCM_KF_ANDROID) || !defined(CONFIG_BCM_ANDROID)
 			ktime_to_ms(max_time), ktime_to_ms(ws->last_time));
+#else
+			ktime_to_ms(max_time), ktime_to_ms(ws->last_time),
+			ktime_to_ms(prevent_sleep_time));
+#endif
 
 	spin_unlock_irqrestore(&ws->lock, flags);
 
@@ -758,8 +1000,14 @@ static int wakeup_sources_stats_show(struct seq_file *m, void *unused)
 {
 	struct wakeup_source *ws;
 
+#if !defined(CONFIG_BCM_KF_ANDROID) || !defined(CONFIG_BCM_ANDROID)
 	seq_puts(m, "name\t\tactive_count\tevent_count\thit_count\t"
 		"active_since\ttotal_time\tmax_time\tlast_change\n");
+#else
+	seq_puts(m, "name\t\tactive_count\tevent_count\twakeup_count\t"
+		"expire_count\tactive_since\ttotal_time\tmax_time\t"
+		"last_change\tprevent_suspend_time\n");
+#endif
 
 	rcu_read_lock();
 	list_for_each_entry_rcu(ws, &wakeup_sources, entry)

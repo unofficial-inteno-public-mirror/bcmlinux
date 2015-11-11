@@ -1,0 +1,12 @@
+--- include/asm-generic/bitsperlong.h	2015-11-10 18:02:31.466722588 +0100
++++ include/asm-generic/bitsperlong.h	2015-11-06 12:40:04.000000000 +0100
+@@ -24,6 +24,9 @@
+  * FIXME: The check currently breaks x86-64 build, so it's
+  * temporarily disabled. Please fix x86-64 and reenable
+  */
++#if 0 && BITS_PER_LONG != __BITS_PER_LONG
++#error Inconsistent word size. Check asm/bitsperlong.h
++#endif
+ 
+ #endif /* __KERNEL__ */
+ #endif /* __ASM_GENERIC_BITS_PER_LONG */

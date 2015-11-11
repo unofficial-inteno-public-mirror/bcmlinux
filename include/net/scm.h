@@ -71,9 +71,17 @@ static __inline__ void scm_destroy(struct scm_cookie *scm)
 }
 
 static __inline__ int scm_send(struct socket *sock, struct msghdr *msg,
+#if !defined(CONFIG_BCM_KF_ANDROID) || !defined(CONFIG_BCM_ANDROID)
 			       struct scm_cookie *scm)
+#else
+			       struct scm_cookie *scm, bool forcecreds)
+#endif
 {
 	memset(scm, 0, sizeof(*scm));
+#if defined(CONFIG_BCM_KF_ANDROID) && defined(CONFIG_BCM_ANDROID)
+	if (forcecreds)
+		scm_set_cred(scm, task_tgid(current), current_cred());
+#endif
 	unix_get_peersec_dgram(sock, scm);
 	if (msg->msg_controllen <= 0)
 		return 0;

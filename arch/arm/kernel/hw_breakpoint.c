@@ -159,6 +159,14 @@ static int debug_arch_supported(void)
 		arch >= ARM_DEBUG_ARCH_V7_1;
 }
 
+#if defined(CONFIG_BCM_KF_ANDROID) && defined(CONFIG_BCM_ANDROID)
+/* Can we determine the watchpoint access type from the fsr? */
+static int debug_exception_updates_fsr(void)
+{
+	return 0;
+}
+
+#endif
 /* Determine number of WRP registers available. */
 static int get_num_wrp_resources(void)
 {
@@ -619,6 +627,7 @@ int arch_validate_hwbkpt_settings(struct perf_event *bp)
 	info->address &= ~alignment_mask;
 	info->ctrl.len <<= offset;
 
+#if !defined(CONFIG_BCM_KF_ANDROID) || !defined(CONFIG_BCM_ANDROID)
 	/*
 	 * Currently we rely on an overflow handler to take
 	 * care of single-stepping the breakpoint when it fires.
@@ -630,7 +639,39 @@ int arch_validate_hwbkpt_settings(struct perf_event *bp)
 	    !core_has_mismatch_brps() || !bp->hw.bp_target)) {
 		pr_warning("overflow handler required but none found\n");
 		ret = -EINVAL;
+#else
+	if (!bp->overflow_handler) {
+		/*
+		 * Mismatch breakpoints are required for single-stepping
+		 * breakpoints.
+		 */
+		if (!core_has_mismatch_brps())
+			return -EINVAL;
+
+		/* We don't allow mismatch breakpoints in kernel space. */
+		if (arch_check_bp_in_kernelspace(bp))
+			return -EPERM;
+
+		/*
+		 * Per-cpu breakpoints are not supported by our stepping
+		 * mechanism.
+		 */
+		if (!bp->hw.bp_target)
+			return -EINVAL;
+
+		/*
+		 * We only support specific access types if the fsr
+		 * reports them.
+		 */
+		if (!debug_exception_updates_fsr() &&
+		    (info->ctrl.type == ARM_BREAKPOINT_LOAD ||
+		     info->ctrl.type == ARM_BREAKPOINT_STORE))
+			return -EINVAL;
+#endif
 	}
+#if defined(CONFIG_BCM_KF_ANDROID) && defined(CONFIG_BCM_ANDROID)
+
+#endif
 out:
 	return ret;
 }
@@ -706,10 +747,19 @@ static void watchpoint_handler(unsigned long addr, unsigned int fsr,
 				goto unlock;
 
 			/* Check that the access type matches. */
+#if !defined(CONFIG_BCM_KF_ANDROID) || !defined(CONFIG_BCM_ANDROID)
 			access = (fsr & ARM_FSR_ACCESS_MASK) ? HW_BREAKPOINT_W :
 				 HW_BREAKPOINT_R;
 			if (!(access & hw_breakpoint_type(wp)))
 				goto unlock;
+#else
+			if (debug_exception_updates_fsr()) {
+				access = (fsr & ARM_FSR_ACCESS_MASK) ?
+					  HW_BREAKPOINT_W : HW_BREAKPOINT_R;
+				if (!(access & hw_breakpoint_type(wp)))
+					goto unlock;
+			}
+#endif
 
 			/* We have a winner. */
 			info->trigger = addr;

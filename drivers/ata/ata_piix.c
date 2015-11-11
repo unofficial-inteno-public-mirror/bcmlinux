@@ -331,6 +331,25 @@ static const struct pci_device_id piix_pci_tbl[] = {
 	{ 0x8086, 0x8c09, PCI_ANY_ID, PCI_ANY_ID, 0, 0, ich8_2port_sata },
 	/* SATA Controller IDE (DH89xxCC) */
 	{ 0x8086, 0x2326, PCI_ANY_ID, PCI_ANY_ID, 0, 0, ich8_2port_sata },
+#if defined(CONFIG_BCM_KF_ANDROID) && defined(CONFIG_BCM_ANDROID)
+	/* SATA Controller IDE (Avoton) */
+	{ 0x8086, 0x1f20, PCI_ANY_ID, PCI_ANY_ID, 0, 0, ich8_sata_snb },
+	/* SATA Controller IDE (Avoton) */
+	{ 0x8086, 0x1f21, PCI_ANY_ID, PCI_ANY_ID, 0, 0, ich8_sata_snb },
+	/* SATA Controller IDE (Avoton) */
+	{ 0x8086, 0x1f30, PCI_ANY_ID, PCI_ANY_ID, 0, 0, ich8_2port_sata },
+	/* SATA Controller IDE (Avoton) */
+	{ 0x8086, 0x1f31, PCI_ANY_ID, PCI_ANY_ID, 0, 0, ich8_2port_sata },
+	/* SATA Controller IDE (Wellsburg) */
+	{ 0x8086, 0x8d00, PCI_ANY_ID, PCI_ANY_ID, 0, 0, ich8_sata_snb },
+	/* SATA Controller IDE (Wellsburg) */
+	{ 0x8086, 0x8d08, PCI_ANY_ID, PCI_ANY_ID, 0, 0, ich8_2port_sata },
+	/* SATA Controller IDE (Wellsburg) */
+	{ 0x8086, 0x8d60, PCI_ANY_ID, PCI_ANY_ID, 0, 0, ich8_sata_snb },
+	/* SATA Controller IDE (Wellsburg) */
+	{ 0x8086, 0x8d68, PCI_ANY_ID, PCI_ANY_ID, 0, 0, ich8_2port_sata },
+
+#endif
 	{ }	/* terminate list */
 };
 
@@ -1577,12 +1596,43 @@ static void piix_ignore_devices_quirk(struct ata_host *host)
 		},
 		{ }	/* terminate list */
 	};
+#if !defined(CONFIG_BCM_KF_ANDROID) || !defined(CONFIG_BCM_ANDROID)
 	const struct dmi_system_id *dmi = dmi_first_match(ignore_hyperv);
+#else
+	static const struct dmi_system_id allow_virtual_pc[] = {
+		{
+			/* In MS Virtual PC guests the DMI ident is nearly
+			 * identical to a Hyper-V guest. One difference is the
+			 * product version which is used here to identify
+			 * a Virtual PC guest. This entry allows ata_piix to
+			 * drive the emulated hardware.
+			 */
+			.ident = "MS Virtual PC 2007",
+			.matches = {
+				DMI_MATCH(DMI_SYS_VENDOR,
+						"Microsoft Corporation"),
+				DMI_MATCH(DMI_PRODUCT_NAME, "Virtual Machine"),
+				DMI_MATCH(DMI_PRODUCT_VERSION, "VS2005R2"),
+			},
+		},
+		{ }	/* terminate list */
+	};
+	const struct dmi_system_id *ignore = dmi_first_match(ignore_hyperv);
+	const struct dmi_system_id *allow = dmi_first_match(allow_virtual_pc);
+#endif
 
+#if !defined(CONFIG_BCM_KF_ANDROID) || !defined(CONFIG_BCM_ANDROID)
 	if (dmi && prefer_ms_hyperv) {
+#else
+	if (ignore && !allow && prefer_ms_hyperv) {
+#endif
 		host->flags |= ATA_HOST_IGNORE_ATA;
 		dev_info(host->dev, "%s detected, ATA device ignore set\n",
+#if !defined(CONFIG_BCM_KF_ANDROID) || !defined(CONFIG_BCM_ANDROID)
 			dmi->ident);
+#else
+			ignore->ident);
+#endif
 	}
 #endif
 }

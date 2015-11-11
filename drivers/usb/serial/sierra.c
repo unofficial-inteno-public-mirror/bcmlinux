@@ -171,7 +171,9 @@ static int sierra_probe(struct usb_serial *serial,
 {
 	int result = 0;
 	struct usb_device *udev;
+#if !defined(CONFIG_BCM_KF_ANDROID) || !defined(CONFIG_BCM_ANDROID)
 	struct sierra_intf_private *data;
+#endif
 	u8 ifnum;
 
 	udev = serial->dev;
@@ -199,11 +201,13 @@ static int sierra_probe(struct usb_serial *serial,
 		return -ENODEV;
 	}
 
+#if !defined(CONFIG_BCM_KF_ANDROID) || !defined(CONFIG_BCM_ANDROID)
 	data = serial->private = kzalloc(sizeof(struct sierra_intf_private), GFP_KERNEL);
 	if (!data)
 		return -ENOMEM;
 	spin_lock_init(&data->susp_lock);
 
+#endif
 	return result;
 }
 
@@ -896,24 +900,33 @@ static int sierra_open(struct tty_struct *tty, struct usb_serial_port *port)
 
 static void sierra_dtr_rts(struct usb_serial_port *port, int on)
 {
+#if !defined(CONFIG_BCM_KF_ANDROID) || !defined(CONFIG_BCM_ANDROID)
 	struct usb_serial *serial = port->serial;
+#endif
 	struct sierra_port_private *portdata;
 
 	portdata = usb_get_serial_port_data(port);
 	portdata->rts_state = on;
 	portdata->dtr_state = on;
 
+#if !defined(CONFIG_BCM_KF_ANDROID) || !defined(CONFIG_BCM_ANDROID)
 	if (serial->dev) {
 		mutex_lock(&serial->disc_mutex);
 		if (!serial->disconnected)
 			sierra_send_setup(port);
 		mutex_unlock(&serial->disc_mutex);
 	}
+#else
+	sierra_send_setup(port);
+#endif
 }
 
 static int sierra_startup(struct usb_serial *serial)
 {
 	struct usb_serial_port *port;
+#if defined(CONFIG_BCM_KF_ANDROID) && defined(CONFIG_BCM_ANDROID)
+	struct sierra_intf_private *intfdata;
+#endif
 	struct sierra_port_private *portdata;
 	struct sierra_iface_info *himemoryp = NULL;
 	int i;
@@ -921,6 +934,16 @@ static int sierra_startup(struct usb_serial *serial)
 
 	dev_dbg(&serial->dev->dev, "%s\n", __func__);
 
+#if defined(CONFIG_BCM_KF_ANDROID) && defined(CONFIG_BCM_ANDROID)
+	intfdata = kzalloc(sizeof(*intfdata), GFP_KERNEL);
+	if (!intfdata)
+		return -ENOMEM;
+
+	spin_lock_init(&intfdata->susp_lock);
+
+	usb_set_serial_data(serial, intfdata);
+
+#endif
 	/* Set Device mode to D0 */
 	sierra_set_power_state(serial->dev, 0x0000);
 
@@ -936,7 +959,11 @@ static int sierra_startup(struct usb_serial *serial)
 			dev_dbg(&port->dev, "%s: kmalloc for "
 				"sierra_port_private (%d) failed!\n",
 				__func__, i);
+#if !defined(CONFIG_BCM_KF_ANDROID) || !defined(CONFIG_BCM_ANDROID)
 			return -ENOMEM;
+#else
+			goto err;
+#endif
 		}
 		spin_lock_init(&portdata->lock);
 		init_usb_anchor(&portdata->active);
@@ -973,6 +1000,16 @@ static int sierra_startup(struct usb_serial *serial)
 	}
 
 	return 0;
+#if defined(CONFIG_BCM_KF_ANDROID) && defined(CONFIG_BCM_ANDROID)
+err:
+	for (--i; i >= 0; --i) {
+		portdata = usb_get_serial_port_data(serial->port[i]);
+		kfree(portdata);
+	}
+	kfree(intfdata);
+
+	return -ENOMEM;
+#endif
 }
 
 static void sierra_release(struct usb_serial *serial)
@@ -992,6 +1029,9 @@ static void sierra_release(struct usb_serial *serial)
 			continue;
 		kfree(portdata);
 	}
+#if defined(CONFIG_BCM_KF_ANDROID) && defined(CONFIG_BCM_ANDROID)
+	kfree(serial->private);
+#endif
 }
 
 #ifdef CONFIG_PM

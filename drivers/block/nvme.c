@@ -1153,7 +1153,11 @@ static int nvme_user_admin_cmd(struct nvme_ns *ns,
 	struct nvme_admin_cmd cmd;
 	struct nvme_command c;
 	int status, length;
+#if !defined(CONFIG_BCM_KF_ANDROID) || !defined(CONFIG_BCM_ANDROID)
 	struct nvme_iod *iod;
+#else
+	struct nvme_iod *uninitialized_var(iod);
+#endif
 
 	if (!capable(CAP_SYS_ADMIN))
 		return -EACCES;

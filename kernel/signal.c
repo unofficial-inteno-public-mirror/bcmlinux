@@ -554,6 +554,11 @@ flush_signal_handlers(struct task_struct *t, int force_default)
 		if (force_default || ka->sa.sa_handler != SIG_IGN)
 			ka->sa.sa_handler = SIG_DFL;
 		ka->sa.sa_flags = 0;
+#if defined(CONFIG_BCM_KF_ANDROID) && defined(CONFIG_BCM_ANDROID)
+#ifdef __ARCH_HAS_SA_RESTORER
+		ka->sa.sa_restorer = NULL;
+#endif
+#endif
 		sigemptyset(&ka->sa.sa_mask);
 		ka++;
 	}
@@ -751,10 +756,16 @@ int dequeue_signal(struct task_struct *tsk, sigset_t *mask, siginfo_t *info)
  * No need to set need_resched since signal event passing
  * goes through ->blocked
  */
+#if !defined(CONFIG_BCM_KF_ANDROID) || !defined(CONFIG_BCM_ANDROID)
 void signal_wake_up(struct task_struct *t, int resume)
+#else
+void signal_wake_up_state(struct task_struct *t, unsigned int state)
+#endif
 {
+#if !defined(CONFIG_BCM_KF_ANDROID) || !defined(CONFIG_BCM_ANDROID)
 	unsigned int mask;
 
+#endif
 	set_tsk_thread_flag(t, TIF_SIGPENDING);
 
 	if (unlikely(t == current))
@@ -767,10 +778,14 @@ void signal_wake_up(struct task_struct *t, int resume)
 	 * By using wake_up_state, we ensure the process will wake up and
 	 * handle its death signal.
 	 */
+#if !defined(CONFIG_BCM_KF_ANDROID) || !defined(CONFIG_BCM_ANDROID)
 	mask = TASK_INTERRUPTIBLE;
 	if (resume)
 		mask |= TASK_WAKEKILL;
 	if (!wake_up_state(t, mask))
+#else
+	if (!wake_up_state(t, state | TASK_INTERRUPTIBLE))
+#endif
 		kick_process(t);
 }
 
@@ -919,7 +934,11 @@ static void ptrace_trap_notify(struct task_struct *t)
 	assert_spin_locked(&t->sighand->siglock);
 
 	task_set_jobctl_pending(t, JOBCTL_TRAP_NOTIFY);
+#if !defined(CONFIG_BCM_KF_ANDROID) || !defined(CONFIG_BCM_ANDROID)
 	signal_wake_up(t, t->jobctl & JOBCTL_LISTENING);
+#else
+	ptrace_signal_wake_up(t, t->jobctl & JOBCTL_LISTENING);
+#endif
 }
 
 /*
@@ -2036,6 +2055,9 @@ static void ptrace_stop(int exit_code, int why, int clear_code, siginfo_t *info)
 		if (gstop_done)
 			do_notify_parent_cldstop(current, false, why);
 
+#if defined(CONFIG_BCM_KF_ANDROID) && defined(CONFIG_BCM_ANDROID)
+		/* tasklist protects us from ptrace_freeze_traced() */
+#endif
 		__set_current_state(TASK_RUNNING);
 		if (clear_code)
 			current->exit_code = 0;
@@ -2312,7 +2334,11 @@ relock:
 	 * Now that we woke up, it's crucial if we're supposed to be
 	 * frozen that we freeze now before running anything substantial.
 	 */
+#if !defined(CONFIG_BCM_KF_ANDROID) || !defined(CONFIG_BCM_ANDROID)
 	try_to_freeze();
+#else
+	try_to_freeze_nowarn();
+#endif
 
 	spin_lock_irq(&sighand->siglock);
 	/*
@@ -2865,7 +2891,11 @@ int do_sigtimedwait(const sigset_t *which, siginfo_t *info,
 		recalc_sigpending();
 		spin_unlock_irq(&tsk->sighand->siglock);
 
+#if !defined(CONFIG_BCM_KF_ANDROID) || !defined(CONFIG_BCM_ANDROID)
 		timeout = schedule_timeout_interruptible(timeout);
+#else
+		timeout = freezable_schedule_timeout_interruptible(timeout);
+#endif
 
 		spin_lock_irq(&tsk->sighand->siglock);
 		__set_task_blocked(tsk, &tsk->real_blocked);

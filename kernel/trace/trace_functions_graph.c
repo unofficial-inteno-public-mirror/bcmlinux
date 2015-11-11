@@ -46,6 +46,10 @@ struct fgraph_data {
 #define TRACE_GRAPH_PRINT_DURATION	0x10
 #define TRACE_GRAPH_PRINT_ABS_TIME	0x20
 #define TRACE_GRAPH_PRINT_IRQS		0x40
+#if defined(CONFIG_BCM_KF_ANDROID) && defined(CONFIG_BCM_ANDROID)
+#define TRACE_GRAPH_PRINT_FLAT		0x80
+
+#endif
 
 static struct tracer_opt trace_opts[] = {
 	/* Display overruns? (for self-debug purpose) */
@@ -62,6 +66,10 @@ static struct tracer_opt trace_opts[] = {
 	{ TRACER_OPT(funcgraph-abstime, TRACE_GRAPH_PRINT_ABS_TIME) },
 	/* Display interrupts */
 	{ TRACER_OPT(funcgraph-irqs, TRACE_GRAPH_PRINT_IRQS) },
+#if defined(CONFIG_BCM_KF_ANDROID) && defined(CONFIG_BCM_ANDROID)
+	/* Use standard trace formatting rather than hierarchical */
+	{ TRACER_OPT(funcgraph-flat, TRACE_GRAPH_PRINT_FLAT) },
+#endif
 	{ } /* Empty entry */
 };
 
@@ -1222,6 +1230,11 @@ print_graph_function_flags(struct trace_iterator *iter, u32 flags)
 	int cpu = iter->cpu;
 	int ret;
 
+#if defined(CONFIG_BCM_KF_ANDROID) && defined(CONFIG_BCM_ANDROID)
+	if (flags & TRACE_GRAPH_PRINT_FLAT)
+		return TRACE_TYPE_UNHANDLED;
+
+#endif
 	if (data && per_cpu_ptr(data->cpu_data, cpu)->ignore) {
 		per_cpu_ptr(data->cpu_data, cpu)->ignore = 0;
 		return TRACE_TYPE_HANDLED;
@@ -1279,6 +1292,7 @@ print_graph_function(struct trace_iterator *iter)
 	return print_graph_function_flags(iter, tracer_flags.val);
 }
 
+#if !defined(CONFIG_BCM_KF_ANDROID) || !defined(CONFIG_BCM_ANDROID)
 static enum print_line_t
 print_graph_function_event(struct trace_iterator *iter, int flags,
 			   struct trace_event *event)
@@ -1286,6 +1300,7 @@ print_graph_function_event(struct trace_iterator *iter, int flags,
 	return print_graph_function(iter);
 }
 
+#endif
 static void print_lat_header(struct seq_file *s, u32 flags)
 {
 	static const char spaces[] = "                "	/* 16 spaces */
@@ -1352,6 +1367,13 @@ void print_graph_headers_flags(struct seq_file *s, u32 flags)
 {
 	struct trace_iterator *iter = s->private;
 
+#if defined(CONFIG_BCM_KF_ANDROID) && defined(CONFIG_BCM_ANDROID)
+	if (flags & TRACE_GRAPH_PRINT_FLAT) {
+		trace_default_header(s);
+		return;
+	}
+
+#endif
 	if (!(trace_flags & TRACE_ITER_CONTEXT_INFO))
 		return;
 
@@ -1422,6 +1444,7 @@ static int func_graph_set_flag(u32 old_flags, u32 bit, int set)
 	return 0;
 }
 
+#if !defined(CONFIG_BCM_KF_ANDROID) || !defined(CONFIG_BCM_ANDROID)
 static struct trace_event_functions graph_functions = {
 	.trace		= print_graph_function_event,
 };
@@ -1436,6 +1459,7 @@ static struct trace_event graph_trace_ret_event = {
 	.funcs		= &graph_functions
 };
 
+#endif
 static struct tracer graph_trace __read_mostly = {
 	.name		= "function_graph",
 	.open		= graph_trace_open,
@@ -1458,6 +1482,7 @@ static __init int init_graph_trace(void)
 {
 	max_bytes_for_cpu = snprintf(NULL, 0, "%d", nr_cpu_ids - 1);
 
+#if !defined(CONFIG_BCM_KF_ANDROID) || !defined(CONFIG_BCM_ANDROID)
 	if (!register_ftrace_event(&graph_trace_entry_event)) {
 		pr_warning("Warning: could not register graph trace events\n");
 		return 1;
@@ -1468,6 +1493,7 @@ static __init int init_graph_trace(void)
 		return 1;
 	}
 
+#endif
 	return register_tracer(&graph_trace);
 }
 

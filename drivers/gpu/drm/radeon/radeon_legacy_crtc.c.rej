@@ -1,0 +1,15 @@
+--- drivers/gpu/drm/radeon/radeon_legacy_crtc.c	2015-11-10 18:01:36.752035345 +0100
++++ drivers/gpu/drm/radeon/radeon_legacy_crtc.c	2015-11-06 12:40:02.000000000 +0100
+@@ -800,6 +800,12 @@
+ 			  post_divider);
+ 
+ 		pll_ref_div   = reference_div;
++#if defined(__powerpc__) && (0) /* TODO */
++		/* apparently programming this otherwise causes a hang??? */
++		if (info->MacModel == RADEON_MAC_IBOOK)
++			pll_fb_post_div = 0x000600ad;
++		else
++#endif
+ 			pll_fb_post_div     = (feedback_div | (post_div->bitvalue << 16));
+ 
+ 		htotal_cntl    = mode->htotal & 0x7;

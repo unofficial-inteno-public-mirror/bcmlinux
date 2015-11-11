@@ -31,7 +31,11 @@
  */
 
 #ifdef STATIC
+#if !defined(CONFIG_BCM_KF_ANDROID) || !defined(CONFIG_BCM_ANDROID)
 #include "lzo/lzo1x_decompress.c"
+#else
+#include "lzo/lzo1x_decompress_safe.c"
+#endif
 #else
 #include <linux/decompress/unlzo.h>
 #endif

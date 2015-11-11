@@ -181,7 +181,11 @@ int nfs_mount(struct nfs_mount_request *info)
 	else
 		msg.rpc_proc = &mnt_clnt->cl_procinfo[MOUNTPROC_MNT];
 
+#if !defined(CONFIG_BCM_KF_ANDROID) || !defined(CONFIG_BCM_ANDROID)
 	status = rpc_call_sync(mnt_clnt, &msg, 0);
+#else
+	status = rpc_call_sync(mnt_clnt, &msg, RPC_TASK_SOFT|RPC_TASK_TIMEOUT);
+#endif
 	rpc_shutdown_client(mnt_clnt);
 
 	if (status < 0)

@@ -28,16 +28,28 @@
 
 struct inet_hashinfo;
 
+#if !defined(CONFIG_BCM_KF_ANDROID) || !defined(CONFIG_BCM_ANDROID)
 /* I have no idea if this is a good hash for v6 or not. -DaveM */
+#endif
 static inline unsigned int inet6_ehashfn(struct net *net,
 				const struct in6_addr *laddr, const u16 lport,
 				const struct in6_addr *faddr, const __be16 fport)
 {
+#if !defined(CONFIG_BCM_KF_ANDROID) || !defined(CONFIG_BCM_ANDROID)
 	u32 ports = (lport ^ (__force u16)fport);
+#else
+	u32 ports = (((u32)lport) << 16) | (__force u32)fport;
+#endif
 
 	return jhash_3words((__force u32)laddr->s6_addr32[3],
+#if !defined(CONFIG_BCM_KF_ANDROID) || !defined(CONFIG_BCM_ANDROID)
 			    (__force u32)faddr->s6_addr32[3],
 			    ports, inet_ehash_secret + net_hash_mix(net));
+#else
+			    ipv6_addr_jhash(faddr),
+			    ports,
+			    inet_ehash_secret + net_hash_mix(net));
+#endif
 }
 
 static inline int inet6_sk_ehashfn(const struct sock *sk)

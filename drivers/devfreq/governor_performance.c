@@ -10,6 +10,9 @@
  */
 
 #include <linux/devfreq.h>
+#if defined(CONFIG_BCM_KF_ANDROID) && defined(CONFIG_BCM_ANDROID)
+#include "governor.h"
+#endif
 
 static int devfreq_performance_func(struct devfreq *df,
 				    unsigned long *freq)
@@ -25,8 +28,18 @@ static int devfreq_performance_func(struct devfreq *df,
 	return 0;
 }
 
+#if defined(CONFIG_BCM_KF_ANDROID) && defined(CONFIG_BCM_ANDROID)
+static int performance_init(struct devfreq *devfreq)
+{
+	return update_devfreq(devfreq);
+}
+
+#endif
 const struct devfreq_governor devfreq_performance = {
 	.name = "performance",
+#if defined(CONFIG_BCM_KF_ANDROID) && defined(CONFIG_BCM_ANDROID)
+	.init = performance_init,
+#endif
 	.get_target_freq = devfreq_performance_func,
 	.no_central_polling = true,
 };

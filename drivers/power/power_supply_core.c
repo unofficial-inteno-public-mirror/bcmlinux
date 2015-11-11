@@ -41,23 +41,59 @@ static int __power_supply_changed_work(struct device *dev, void *data)
 
 static void power_supply_changed_work(struct work_struct *work)
 {
+#if defined(CONFIG_BCM_KF_ANDROID) && defined(CONFIG_BCM_ANDROID)
+	unsigned long flags;
+#endif
 	struct power_supply *psy = container_of(work, struct power_supply,
 						changed_work);
 
 	dev_dbg(psy->dev, "%s\n", __func__);
 
+#if !defined(CONFIG_BCM_KF_ANDROID) || !defined(CONFIG_BCM_ANDROID)
 	class_for_each_device(power_supply_class, NULL, psy,
 			      __power_supply_changed_work);
+#else
+	spin_lock_irqsave(&psy->changed_lock, flags);
+	if (psy->changed) {
+		psy->changed = false;
+		spin_unlock_irqrestore(&psy->changed_lock, flags);
+#endif
 
+#if !defined(CONFIG_BCM_KF_ANDROID) || !defined(CONFIG_BCM_ANDROID)
 	power_supply_update_leds(psy);
+#else
+		class_for_each_device(power_supply_class, NULL, psy,
+				      __power_supply_changed_work);
+#endif
 
+#if !defined(CONFIG_BCM_KF_ANDROID) || !defined(CONFIG_BCM_ANDROID)
 	kobject_uevent(&psy->dev->kobj, KOBJ_CHANGE);
+#else
+		power_supply_update_leds(psy);
+
+		kobject_uevent(&psy->dev->kobj, KOBJ_CHANGE);
+		spin_lock_irqsave(&psy->changed_lock, flags);
+	}
+	if (!psy->changed)
+		pm_relax(psy->dev);
+	spin_unlock_irqrestore(&psy->changed_lock, flags);
+#endif
 }
 
 void power_supply_changed(struct power_supply *psy)
 {
+#if defined(CONFIG_BCM_KF_ANDROID) && defined(CONFIG_BCM_ANDROID)
+	unsigned long flags;
+
+#endif
 	dev_dbg(psy->dev, "%s\n", __func__);
 
+#if defined(CONFIG_BCM_KF_ANDROID) && defined(CONFIG_BCM_ANDROID)
+	spin_lock_irqsave(&psy->changed_lock, flags);
+	psy->changed = true;
+	pm_stay_awake(psy->dev);
+	spin_unlock_irqrestore(&psy->changed_lock, flags);
+#endif
 	schedule_work(&psy->changed_work);
 }
 EXPORT_SYMBOL_GPL(power_supply_changed);
@@ -197,6 +233,13 @@ int power_supply_register(struct device *parent, struct power_supply *psy)
 	if (rc)
 		goto device_add_failed;
 
+#if defined(CONFIG_BCM_KF_ANDROID) && defined(CONFIG_BCM_ANDROID)
+	spin_lock_init(&psy->changed_lock);
+	rc = device_init_wakeup(dev, true);
+	if (rc)
+		goto wakeup_init_failed;
+
+#endif
 	rc = power_supply_create_triggers(psy);
 	if (rc)
 		goto create_triggers_failed;
@@ -206,6 +249,9 @@ int power_supply_register(struct device *parent, struct power_supply *psy)
 	goto success;
 
 create_triggers_failed:
+#if defined(CONFIG_BCM_KF_ANDROID) && defined(CONFIG_BCM_ANDROID)
+wakeup_init_failed:
+#endif
 	device_del(dev);
 kobject_set_name_failed:
 device_add_failed:

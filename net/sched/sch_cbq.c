@@ -250,10 +250,19 @@ cbq_classify(struct sk_buff *skb, struct Qdisc *sch, int *qerr)
 			else if ((cl = defmap[res.classid & TC_PRIO_MAX]) == NULL)
 				cl = defmap[TC_PRIO_BESTEFFORT];
 
+#if !defined(CONFIG_BCM_KF_ANDROID) || !defined(CONFIG_BCM_ANDROID)
 			if (cl == NULL || cl->level >= head->level)
+#else
+			if (cl == NULL)
+#endif
 				goto fallback;
 		}
+#if !defined(CONFIG_BCM_KF_ANDROID) || !defined(CONFIG_BCM_ANDROID)
 
+#else
+		if (cl->level >= head->level)
+			goto fallback;
+#endif
 #ifdef CONFIG_NET_CLS_ACT
 		switch (result) {
 		case TC_ACT_QUEUED:

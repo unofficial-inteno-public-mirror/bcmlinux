@@ -65,7 +65,11 @@ static int crypto_rng_report(struct sk_buff *skb, struct crypto_alg *alg)
 {
 	struct crypto_report_rng rrng;
 
+#if !defined(CONFIG_BCM_KF_ANDROID) || !defined(CONFIG_BCM_ANDROID)
 	snprintf(rrng.type, CRYPTO_MAX_ALG_NAME, "%s", "rng");
+#else
+	strncpy(rrng.type, "rng", sizeof(rrng.type));
+#endif
 
 	rrng.seedsize = alg->cra_rng.seedsize;
 

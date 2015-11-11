@@ -12,6 +12,28 @@
 
 #include <linux/security.h>
 
+#if defined(CONFIG_BCM_KF_ANDROID) && defined(CONFIG_BCM_ANDROID)
+static int cap_binder_set_context_mgr(struct task_struct *mgr)
+{
+	return 0;
+}
+
+static int cap_binder_transaction(struct task_struct *from, struct task_struct *to)
+{
+	return 0;
+}
+
+static int cap_binder_transfer_binder(struct task_struct *from, struct task_struct *to)
+{
+	return 0;
+}
+
+static int cap_binder_transfer_file(struct task_struct *from, struct task_struct *to, struct file *file)
+{
+	return 0;
+}
+
+#endif
 static int cap_syslog(int type)
 {
 	return 0;
@@ -877,6 +899,12 @@ static void cap_audit_rule_free(void *lsmrule)
 
 void __init security_fixup_ops(struct security_operations *ops)
 {
+#if defined(CONFIG_BCM_KF_ANDROID) && defined(CONFIG_BCM_ANDROID)
+	set_to_cap_if_null(ops, binder_set_context_mgr);
+	set_to_cap_if_null(ops, binder_transaction);
+	set_to_cap_if_null(ops, binder_transfer_binder);
+	set_to_cap_if_null(ops, binder_transfer_file);
+#endif
 	set_to_cap_if_null(ops, ptrace_access_check);
 	set_to_cap_if_null(ops, ptrace_traceme);
 	set_to_cap_if_null(ops, capget);

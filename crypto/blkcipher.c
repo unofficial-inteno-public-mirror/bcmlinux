@@ -499,9 +499,15 @@ static int crypto_blkcipher_report(struct sk_buff *skb, struct crypto_alg *alg)
 {
 	struct crypto_report_blkcipher rblkcipher;
 
+#if !defined(CONFIG_BCM_KF_ANDROID) || !defined(CONFIG_BCM_ANDROID)
 	snprintf(rblkcipher.type, CRYPTO_MAX_ALG_NAME, "%s", "blkcipher");
 	snprintf(rblkcipher.geniv, CRYPTO_MAX_ALG_NAME, "%s",
 		 alg->cra_blkcipher.geniv ?: "<default>");
+#else
+	strncpy(rblkcipher.type, "blkcipher", sizeof(rblkcipher.type));
+	strncpy(rblkcipher.geniv, alg->cra_blkcipher.geniv ?: "<default>",
+		sizeof(rblkcipher.geniv));
+#endif
 
 	rblkcipher.blocksize = alg->cra_blocksize;
 	rblkcipher.min_keysize = alg->cra_blkcipher.min_keysize;

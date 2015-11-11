@@ -87,7 +87,11 @@
 	(memcmp(addr1, addr2, length >> 3) == 0)
 
 /* local link, i.e. FE80::/10 */
+#if !defined(CONFIG_BCM_KF_ANDROID) || !defined(CONFIG_BCM_ANDROID)
 #define is_addr_link_local(a) (((a)->s6_addr16[0]) == 0x80FE)
+#else
+#define is_addr_link_local(a) (((a)->s6_addr16[0]) == htons(0xFE80))
+#endif
 
 /*
  * check whether we can compress the IID to 16 bits,

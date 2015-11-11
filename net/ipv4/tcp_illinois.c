@@ -313,11 +313,23 @@ static void tcp_illinois_info(struct sock *sk, u32 ext,
 			.tcpv_rttcnt = ca->cnt_rtt,
 			.tcpv_minrtt = ca->base_rtt,
 		};
+#if !defined(CONFIG_BCM_KF_ANDROID) || !defined(CONFIG_BCM_ANDROID)
 		u64 t = ca->sum_rtt;
+#endif
 
+#if !defined(CONFIG_BCM_KF_ANDROID) || !defined(CONFIG_BCM_ANDROID)
 		do_div(t, ca->cnt_rtt);
 		info.tcpv_rtt = t;
+#else
+		if (info.tcpv_rttcnt > 0) {
+			u64 t = ca->sum_rtt;
+#endif
 
+#if defined(CONFIG_BCM_KF_ANDROID) && defined(CONFIG_BCM_ANDROID)
+			do_div(t, info.tcpv_rttcnt);
+			info.tcpv_rtt = t;
+		}
+#endif
 		nla_put(skb, INET_DIAG_VEGASINFO, sizeof(info), &info);
 	}
 }

@@ -1761,7 +1761,11 @@ static struct dst_entry *make_blackhole(struct net *net, u16 family,
 
 	if (!afinfo) {
 		dst_release(dst_orig);
+#if !defined(CONFIG_BCM_KF_ANDROID) || !defined(CONFIG_BCM_ANDROID)
 		ret = ERR_PTR(-EINVAL);
+#else
+		return ERR_PTR(-EINVAL);
+#endif
 	} else {
 		ret = afinfo->blackhole_route(net, dst_orig);
 	}

@@ -1347,6 +1347,10 @@ struct net_device {
 	/* for setting kernel sock attribute on TCP connection setup */
 #define GSO_MAX_SIZE		65536
 	unsigned int		gso_max_size;
+#if defined(CONFIG_BCM_KF_ANDROID) && defined(CONFIG_BCM_ANDROID)
+#define GSO_MAX_SEGS		65535
+	u16			gso_max_segs;
+#endif
 
 #ifdef CONFIG_DCB
 	/* Data Center Bridging netlink ops */
@@ -1562,6 +1566,10 @@ struct packet_type {
 	struct sk_buff		**(*gro_receive)(struct sk_buff **head,
 					       struct sk_buff *skb);
 	int			(*gro_complete)(struct sk_buff *skb);
+#if defined(CONFIG_BCM_KF_ANDROID) && defined(CONFIG_BCM_ANDROID)
+	bool			(*id_match)(struct packet_type *ptype,
+					    struct sock *sk);
+#endif
 	void			*af_packet_priv;
 	struct list_head	list;
 };

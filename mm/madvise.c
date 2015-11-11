@@ -93,7 +93,12 @@ static long madvise_behavior(struct vm_area_struct * vma,
 
 	pgoff = vma->vm_pgoff + ((start - vma->vm_start) >> PAGE_SHIFT);
 	*prev = vma_merge(mm, *prev, start, end, new_flags, vma->anon_vma,
+#if !defined(CONFIG_BCM_KF_ANDROID) || !defined(CONFIG_BCM_ANDROID)
 				vma->vm_file, pgoff, vma_policy(vma));
+#else
+				vma->vm_file, pgoff, vma_policy(vma),
+				vma_get_anon_name(vma));
+#endif
 	if (*prev) {
 		vma = *prev;
 		goto success;

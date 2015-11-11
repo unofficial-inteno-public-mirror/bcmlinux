@@ -81,6 +81,9 @@ MODULE_DEVICE_TABLE (usb, wdm_ids);
 #define WDM_RESPONDING		7
 #define WDM_SUSPENDING		8
 #define WDM_RESETTING		9
+#if defined(CONFIG_BCM_KF_ANDROID) && defined(CONFIG_BCM_ANDROID)
+#define WDM_OVERFLOW		10
+#endif
 
 #define WDM_MAX			16
 
@@ -134,12 +137,22 @@ static struct usb_driver wdm_driver;
 /* return intfdata if we own the interface, else look up intf in the list */
 static struct wdm_device *wdm_find_device(struct usb_interface *intf)
 {
+#if !defined(CONFIG_BCM_KF_ANDROID) || !defined(CONFIG_BCM_ANDROID)
 	struct wdm_device *desc = NULL;
+#else
+	struct wdm_device *desc;
+#endif
 
 	spin_lock(&wdm_device_list_lock);
 	list_for_each_entry(desc, &wdm_device_list, device_list)
 		if (desc->intf == intf)
+#if !defined(CONFIG_BCM_KF_ANDROID) || !defined(CONFIG_BCM_ANDROID)
 			break;
+#else
+			goto found;
+	desc = NULL;
+found:
+#endif
 	spin_unlock(&wdm_device_list_lock);
 
 	return desc;
@@ -147,12 +160,22 @@ static struct wdm_device *wdm_find_device(struct usb_interface *intf)
 
 static struct wdm_device *wdm_find_device_by_minor(int minor)
 {
+#if !defined(CONFIG_BCM_KF_ANDROID) || !defined(CONFIG_BCM_ANDROID)
 	struct wdm_device *desc = NULL;
+#else
+	struct wdm_device *desc;
+#endif
 
 	spin_lock(&wdm_device_list_lock);
 	list_for_each_entry(desc, &wdm_device_list, device_list)
 		if (desc->intf->minor == minor)
+#if !defined(CONFIG_BCM_KF_ANDROID) || !defined(CONFIG_BCM_ANDROID)
 			break;
+#else
+			goto found;
+	desc = NULL;
+found:
+#endif
 	spin_unlock(&wdm_device_list_lock);
 
 	return desc;
@@ -176,6 +199,9 @@ static void wdm_in_callback(struct urb *urb)
 {
 	struct wdm_device *desc = urb->context;
 	int status = urb->status;
+#if defined(CONFIG_BCM_KF_ANDROID) && defined(CONFIG_BCM_ANDROID)
+	int length = urb->actual_length;
+#endif
 
 	spin_lock(&desc->iuspin);
 	clear_bit(WDM_RESPONDING, &desc->flags);
@@ -206,9 +232,23 @@ static void wdm_in_callback(struct urb *urb)
 	}
 
 	desc->rerr = status;
+#if !defined(CONFIG_BCM_KF_ANDROID) || !defined(CONFIG_BCM_ANDROID)
 	desc->reslength = urb->actual_length;
 	memmove(desc->ubuf + desc->length, desc->inbuf, desc->reslength);
 	desc->length += desc->reslength;
+#else
+	if (length + desc->length > desc->wMaxCommand) {
+		/* The buffer would overflow */
+		set_bit(WDM_OVERFLOW, &desc->flags);
+	} else {
+		/* we may already be in overflow */
+		if (!test_bit(WDM_OVERFLOW, &desc->flags)) {
+			memmove(desc->ubuf + desc->length, desc->inbuf, length);
+			desc->length += length;
+			desc->reslength = length;
+		}
+	}
+#endif
 skip_error:
 	wake_up(&desc->wait);
 
@@ -453,6 +493,13 @@ retry:
 			rv = -ENODEV;
 			goto err;
 		}
+#if defined(CONFIG_BCM_KF_ANDROID) && defined(CONFIG_BCM_ANDROID)
+		if (test_bit(WDM_OVERFLOW, &desc->flags)) {
+			clear_bit(WDM_OVERFLOW, &desc->flags);
+			rv = -ENOBUFS;
+			goto err;
+		}
+#endif
 		i++;
 		if (file->f_flags & O_NONBLOCK) {
 			if (!test_bit(WDM_READ, &desc->flags)) {
@@ -496,6 +543,9 @@ retry:
 			spin_unlock_irq(&desc->iuspin);
 			goto retry;
 		}
+#if defined(CONFIG_BCM_KF_ANDROID) && defined(CONFIG_BCM_ANDROID)
+
+#endif
 		if (!desc->reslength) { /* zero length read */
 			dev_dbg(&desc->intf->dev, "%s: zero length - clearing WDM_READ\n", __func__);
 			clear_bit(WDM_READ, &desc->flags);
@@ -1019,6 +1069,9 @@ static int wdm_post_reset(struct usb_interface *intf)
 	struct wdm_device *desc = wdm_find_device(intf);
 	int rv;
 
+#if defined(CONFIG_BCM_KF_ANDROID) && defined(CONFIG_BCM_ANDROID)
+	clear_bit(WDM_OVERFLOW, &desc->flags);
+#endif
 	clear_bit(WDM_RESETTING, &desc->flags);
 	rv = recover_from_urb_loss(desc);
 	mutex_unlock(&desc->wlock);

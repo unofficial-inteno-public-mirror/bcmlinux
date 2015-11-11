@@ -209,7 +209,12 @@ repeat:
 		if (!new_transaction)
 			goto alloc_transaction;
 		write_lock(&journal->j_state_lock);
+#if !defined(CONFIG_BCM_KF_ANDROID) || !defined(CONFIG_BCM_ANDROID)
 		if (!journal->j_running_transaction) {
+#else
+		if (!journal->j_running_transaction &&
+		    !journal->j_barrier_count) {
+#endif
 			jbd2_get_transaction(journal, new_transaction);
 			new_transaction = NULL;
 		}
@@ -1046,9 +1051,20 @@ out:
 void jbd2_journal_set_triggers(struct buffer_head *bh,
 			       struct jbd2_buffer_trigger_type *type)
 {
+#if !defined(CONFIG_BCM_KF_ANDROID) || !defined(CONFIG_BCM_ANDROID)
 	struct journal_head *jh = bh2jh(bh);
+#else
+	struct journal_head *jh = jbd2_journal_grab_journal_head(bh);
+#endif
 
+#if defined(CONFIG_BCM_KF_ANDROID) && defined(CONFIG_BCM_ANDROID)
+	if (WARN_ON(!jh))
+		return;
+#endif
 	jh->b_triggers = type;
+#if defined(CONFIG_BCM_KF_ANDROID) && defined(CONFIG_BCM_ANDROID)
+	jbd2_journal_put_journal_head(jh);
+#endif
 }
 
 void jbd2_buffer_frozen_trigger(struct journal_head *jh, void *mapped_data,
@@ -1100,17 +1116,32 @@ int jbd2_journal_dirty_metadata(handle_t *handle, struct buffer_head *bh)
 {
 	transaction_t *transaction = handle->h_transaction;
 	journal_t *journal = transaction->t_journal;
+#if !defined(CONFIG_BCM_KF_ANDROID) || !defined(CONFIG_BCM_ANDROID)
 	struct journal_head *jh = bh2jh(bh);
+#else
+	struct journal_head *jh;
+#endif
 	int ret = 0;
 
+#if !defined(CONFIG_BCM_KF_ANDROID) || !defined(CONFIG_BCM_ANDROID)
 	jbd_debug(5, "journal_head %p\n", jh);
 	JBUFFER_TRACE(jh, "entry");
+#endif
 	if (is_handle_aborted(handle))
 		goto out;
+#if !defined(CONFIG_BCM_KF_ANDROID) || !defined(CONFIG_BCM_ANDROID)
 	if (!buffer_jbd(bh)) {
+#else
+	jh = jbd2_journal_grab_journal_head(bh);
+	if (!jh) {
+#endif
 		ret = -EUCLEAN;
 		goto out;
 	}
+#if defined(CONFIG_BCM_KF_ANDROID) && defined(CONFIG_BCM_ANDROID)
+	jbd_debug(5, "journal_head %p\n", jh);
+	JBUFFER_TRACE(jh, "entry");
+#endif
 
 	jbd_lock_bh_state(bh);
 
@@ -1201,6 +1232,9 @@ int jbd2_journal_dirty_metadata(handle_t *handle, struct buffer_head *bh)
 	spin_unlock(&journal->j_list_lock);
 out_unlock_bh:
 	jbd_unlock_bh_state(bh);
+#if defined(CONFIG_BCM_KF_ANDROID) && defined(CONFIG_BCM_ANDROID)
+	jbd2_journal_put_journal_head(jh);
+#endif
 out:
 	JBUFFER_TRACE(jh, "exit");
 	WARN_ON(ret);	/* All errors are bugs, so dump the stack */

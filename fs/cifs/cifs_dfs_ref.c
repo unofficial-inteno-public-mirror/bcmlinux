@@ -226,6 +226,10 @@ compose_mount_options_out:
 compose_mount_options_err:
 	kfree(mountdata);
 	mountdata = ERR_PTR(rc);
+#if defined(CONFIG_BCM_KF_ANDROID) && defined(CONFIG_BCM_ANDROID)
+	kfree(*devname);
+	*devname = NULL;
+#endif
 	goto compose_mount_options_out;
 }
 

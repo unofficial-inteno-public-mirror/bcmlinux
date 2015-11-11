@@ -60,6 +60,9 @@
 #include <linux/pid.h>
 #include <linux/nsproxy.h>
 #include <linux/ptrace.h>
+#if defined(CONFIG_BCM_KF_ANDROID) && defined(CONFIG_BCM_ANDROID)
+#include <linux/freezer.h>
+#endif
 
 #include <asm/futex.h>
 
@@ -716,7 +719,11 @@ static int futex_lock_pi_atomic(u32 __user *uaddr, struct futex_hash_bucket *hb,
 				struct futex_pi_state **ps,
 				struct task_struct *task, int set_waiters)
 {
+#if !defined(CONFIG_BCM_KF_ANDROID) || !defined(CONFIG_BCM_ANDROID)
 	int lock_taken, ret, ownerdied = 0;
+#else
+	int lock_taken, ret, force_take = 0;
+#endif
 	u32 uval, newval, curval, vpid = task_pid_vnr(task);
 
 retry:
@@ -762,10 +769,22 @@ retry:
 	 *
 	 * This is safe as we are protected by the hash bucket lock !
 	 */
+#if !defined(CONFIG_BCM_KF_ANDROID) || !defined(CONFIG_BCM_ANDROID)
 	if (unlikely(ownerdied || !(curval & FUTEX_TID_MASK))) {
 		/* Keep the OWNER_DIED bit */
+#else
+	if (unlikely(force_take)) {
+		/*
+		 * Keep the OWNER_DIED and the WAITERS bit and set the
+		 * new TID value.
+		 */
+#endif
 		newval = (curval & ~FUTEX_TID_MASK) | vpid;
+#if !defined(CONFIG_BCM_KF_ANDROID) || !defined(CONFIG_BCM_ANDROID)
 		ownerdied = 0;
+#else
+		force_take = 0;
+#endif
 		lock_taken = 1;
 	}
 
@@ -802,8 +821,13 @@ retry:
 			 * futex. The code above will take the futex
 			 * and return happy.
 			 */
+#if !defined(CONFIG_BCM_KF_ANDROID) || !defined(CONFIG_BCM_ANDROID)
 			if (curval & FUTEX_OWNER_DIED) {
 				ownerdied = 1;
+#else
+			if (!(curval & FUTEX_TID_MASK)) {
+				force_take = 1;
+#endif
 				goto retry;
 			}
 		default:
@@ -840,6 +864,11 @@ static void wake_futex(struct futex_q *q)
 {
 	struct task_struct *p = q->task;
 
+#if defined(CONFIG_BCM_KF_ANDROID) && defined(CONFIG_BCM_ANDROID)
+	if (WARN(q->pi_state || q->rt_waiter, "refusing to wake PI futex\n"))
+		return;
+
+#endif
 	/*
 	 * We set q->lock_ptr = NULL _before_ we wake up the task. If
 	 * a non-futex wake up happens on another CPU then the task
@@ -1075,6 +1104,12 @@ retry_private:
 
 	plist_for_each_entry_safe(this, next, head, list) {
 		if (match_futex (&this->key, &key1)) {
+#if defined(CONFIG_BCM_KF_ANDROID) && defined(CONFIG_BCM_ANDROID)
+			if (this->pi_state || this->rt_waiter) {
+				ret = -EINVAL;
+				goto out_unlock;
+			}
+#endif
 			wake_futex(this);
 			if (++ret >= nr_wake)
 				break;
@@ -1087,6 +1122,12 @@ retry_private:
 		op_ret = 0;
 		plist_for_each_entry_safe(this, next, head, list) {
 			if (match_futex (&this->key, &key2)) {
+#if defined(CONFIG_BCM_KF_ANDROID) && defined(CONFIG_BCM_ANDROID)
+				if (this->pi_state || this->rt_waiter) {
+					ret = -EINVAL;
+					goto out_unlock;
+				}
+#endif
 				wake_futex(this);
 				if (++op_ret >= nr_wake2)
 					break;
@@ -1095,6 +1136,9 @@ retry_private:
 		ret += op_ret;
 	}
 
+#if defined(CONFIG_BCM_KF_ANDROID) && defined(CONFIG_BCM_ANDROID)
+out_unlock:
+#endif
 	double_unlock_hb(hb1, hb2);
 out_put_keys:
 	put_futex_key(&key2);
@@ -1407,7 +1451,12 @@ retry_private:
 		 * be paired with each other and no other futex ops.
 		 */
 		if ((requeue_pi && !this->rt_waiter) ||
+#if !defined(CONFIG_BCM_KF_ANDROID) || !defined(CONFIG_BCM_ANDROID)
 		    (!requeue_pi && this->rt_waiter)) {
+#else
+		    (!requeue_pi && this->rt_waiter) ||
+		    this->pi_state) {
+#endif
 			ret = -EINVAL;
 			break;
 		}
@@ -1817,7 +1866,11 @@ static void futex_wait_queue_me(struct futex_hash_bucket *hb, struct futex_q *q,
 		 * is no timeout, or if it has yet to expire.
 		 */
 		if (!timeout || timeout->task)
+#if !defined(CONFIG_BCM_KF_ANDROID) || !defined(CONFIG_BCM_ANDROID)
 			schedule();
+#else
+			freezable_schedule();
+#endif
 	}
 	__set_current_state(TASK_RUNNING);
 }
@@ -2531,8 +2584,10 @@ SYSCALL_DEFINE3(get_robust_list, int, pid,
 	if (!futex_cmpxchg_enabled)
 		return -ENOSYS;
 
+#if !defined(CONFIG_BCM_KF_ANDROID) || !defined(CONFIG_BCM_ANDROID)
 	WARN_ONCE(1, "deprecated: get_robust_list will be deleted in 2013.\n");
 
+#endif
 	rcu_read_lock();
 
 	ret = -ESRCH;

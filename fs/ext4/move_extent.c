@@ -140,6 +140,7 @@ mext_next_extent(struct inode *inode, struct ext4_ext_path *path,
 	return 1;
 }
 
+#if !defined(CONFIG_BCM_KF_ANDROID) || !defined(CONFIG_BCM_ANDROID)
 /**
  * mext_check_null_inode - NULL check for two inodes
  *
@@ -165,6 +166,7 @@ mext_check_null_inode(struct inode *inode1, struct inode *inode2,
 	return ret;
 }
 
+#endif
 /**
  * double_down_write_data_sem - Acquire two inodes' write lock of i_data_sem
  *
@@ -174,10 +176,24 @@ mext_check_null_inode(struct inode *inode1, struct inode *inode2,
  * i_ino order.
  */
 static void
+#if !defined(CONFIG_BCM_KF_ANDROID) || !defined(CONFIG_BCM_ANDROID)
 double_down_write_data_sem(struct inode *orig_inode, struct inode *donor_inode)
+#else
+double_down_write_data_sem(struct inode *first, struct inode *second)
+#endif
 {
+#if !defined(CONFIG_BCM_KF_ANDROID) || !defined(CONFIG_BCM_ANDROID)
 	struct inode *first = orig_inode, *second = donor_inode;
+#else
+	if (first < second) {
+		down_write(&EXT4_I(first)->i_data_sem);
+		down_write_nested(&EXT4_I(second)->i_data_sem, SINGLE_DEPTH_NESTING);
+	} else {
+		down_write(&EXT4_I(second)->i_data_sem);
+		down_write_nested(&EXT4_I(first)->i_data_sem, SINGLE_DEPTH_NESTING);
+#endif
 
+#if !defined(CONFIG_BCM_KF_ANDROID) || !defined(CONFIG_BCM_ANDROID)
 	/*
 	 * Use the inode number to provide the stable locking order instead
 	 * of its address, because the C language doesn't guarantee you can
@@ -186,10 +202,13 @@ double_down_write_data_sem(struct inode *orig_inode, struct inode *donor_inode)
 	if (donor_inode->i_ino < orig_inode->i_ino) {
 		first = donor_inode;
 		second = orig_inode;
+#endif
 	}
+#if !defined(CONFIG_BCM_KF_ANDROID) || !defined(CONFIG_BCM_ANDROID)
 
 	down_write(&EXT4_I(first)->i_data_sem);
 	down_write_nested(&EXT4_I(second)->i_data_sem, SINGLE_DEPTH_NESTING);
+#endif
 }
 
 /**
@@ -969,6 +988,7 @@ mext_check_arguments(struct inode *orig_inode,
 		return -EINVAL;
 	}
 
+#if !defined(CONFIG_BCM_KF_ANDROID) || !defined(CONFIG_BCM_ANDROID)
 	/* Files should be in the same ext4 FS */
 	if (orig_inode->i_sb != donor_inode->i_sb) {
 		ext4_debug("ext4 move extent: The argument files "
@@ -977,6 +997,7 @@ mext_check_arguments(struct inode *orig_inode,
 		return -EINVAL;
 	}
 
+#endif
 	/* Ext4 move extent supports only extent based file */
 	if (!(ext4_test_inode_flag(orig_inode, EXT4_INODE_EXTENTS))) {
 		ext4_debug("ext4 move extent: orig file is not extents "
@@ -1075,9 +1096,14 @@ mext_check_arguments(struct inode *orig_inode,
  * Lock two inodes' i_mutex by i_ino order.
  * If inode1 or inode2 is NULL, return -EIO. Otherwise, return 0.
  */
+#if !defined(CONFIG_BCM_KF_ANDROID) || !defined(CONFIG_BCM_ANDROID)
 static int
+#else
+static void
+#endif
 mext_inode_double_lock(struct inode *inode1, struct inode *inode2)
 {
+#if !defined(CONFIG_BCM_KF_ANDROID) || !defined(CONFIG_BCM_ANDROID)
 	int ret = 0;
 
 	BUG_ON(inode1 == NULL && inode2 == NULL);
@@ -1092,15 +1118,21 @@ mext_inode_double_lock(struct inode *inode1, struct inode *inode2)
 	}
 
 	if (inode1->i_ino < inode2->i_ino) {
+#else
+	BUG_ON(inode1 == inode2);
+	if (inode1 < inode2) {
+#endif
 		mutex_lock_nested(&inode1->i_mutex, I_MUTEX_PARENT);
 		mutex_lock_nested(&inode2->i_mutex, I_MUTEX_CHILD);
 	} else {
 		mutex_lock_nested(&inode2->i_mutex, I_MUTEX_PARENT);
 		mutex_lock_nested(&inode1->i_mutex, I_MUTEX_CHILD);
 	}
+#if !defined(CONFIG_BCM_KF_ANDROID) || !defined(CONFIG_BCM_ANDROID)
 
 out:
 	return ret;
+#endif
 }
 
 /**
@@ -1112,9 +1144,14 @@ out:
  * If inode1 or inode2 is NULL, return -EIO. Otherwise, return 0.
  */
 
+#if !defined(CONFIG_BCM_KF_ANDROID) || !defined(CONFIG_BCM_ANDROID)
 static int
+#else
+static void
+#endif
 mext_inode_double_unlock(struct inode *inode1, struct inode *inode2)
 {
+#if !defined(CONFIG_BCM_KF_ANDROID) || !defined(CONFIG_BCM_ANDROID)
 	int ret = 0;
 
 	BUG_ON(inode1 == NULL && inode2 == NULL);
@@ -1131,6 +1168,10 @@ mext_inode_double_unlock(struct inode *inode1, struct inode *inode2)
 
 out:
 	return ret;
+#else
+	mutex_unlock(&inode1->i_mutex);
+	mutex_unlock(&inode2->i_mutex);
+#endif
 }
 
 /**
@@ -1187,16 +1228,36 @@ ext4_move_extents(struct file *o_filp, struct file *d_filp,
 	ext4_lblk_t block_end, seq_start, add_blocks, file_end, seq_blocks = 0;
 	ext4_lblk_t rest_blocks;
 	pgoff_t orig_page_offset = 0, seq_end_page;
+#if !defined(CONFIG_BCM_KF_ANDROID) || !defined(CONFIG_BCM_ANDROID)
 	int ret1, ret2, depth, last_extent = 0;
+#else
+	int ret, depth, last_extent = 0;
+#endif
 	int blocks_per_page = PAGE_CACHE_SIZE >> orig_inode->i_blkbits;
 	int data_offset_in_page;
 	int block_len_in_page;
 	int uninit;
 
+#if !defined(CONFIG_BCM_KF_ANDROID) || !defined(CONFIG_BCM_ANDROID)
 	/* orig and donor should be different file */
 	if (orig_inode->i_ino == donor_inode->i_ino) {
+#else
+	if (orig_inode->i_sb != donor_inode->i_sb) {
+		ext4_debug("ext4 move extent: The argument files "
+			"should be in same FS [ino:orig %lu, donor %lu]\n",
+			orig_inode->i_ino, donor_inode->i_ino);
+		return -EINVAL;
+	}
+
+	/* orig and donor should be different inodes */
+	if (orig_inode == donor_inode) {
+#endif
 		ext4_debug("ext4 move extent: The argument files should not "
+#if !defined(CONFIG_BCM_KF_ANDROID) || !defined(CONFIG_BCM_ANDROID)
 			"be same file [ino:orig %lu, donor %lu]\n",
+#else
+			"be same inode [ino:orig %lu, donor %lu]\n",
+#endif
 			orig_inode->i_ino, donor_inode->i_ino);
 		return -EINVAL;
 	}
@@ -1208,18 +1269,39 @@ ext4_move_extents(struct file *o_filp, struct file *d_filp,
 			orig_inode->i_ino, donor_inode->i_ino);
 		return -EINVAL;
 	}
+#if !defined(CONFIG_BCM_KF_ANDROID) || !defined(CONFIG_BCM_ANDROID)
 
+#else
+	/* TODO: This is non obvious task to swap blocks for inodes with full
+	   jornaling enabled */
+	if (ext4_should_journal_data(orig_inode) ||
+	    ext4_should_journal_data(donor_inode)) {
+		return -EINVAL;
+	}
+#endif
 	/* Protect orig and donor inodes against a truncate */
+#if !defined(CONFIG_BCM_KF_ANDROID) || !defined(CONFIG_BCM_ANDROID)
 	ret1 = mext_inode_double_lock(orig_inode, donor_inode);
 	if (ret1 < 0)
 		return ret1;
+#else
+	mext_inode_double_lock(orig_inode, donor_inode);
+#endif
 
 	/* Protect extent tree against block allocations via delalloc */
 	double_down_write_data_sem(orig_inode, donor_inode);
 	/* Check the filesystem environment whether move_extent can be done */
+#if !defined(CONFIG_BCM_KF_ANDROID) || !defined(CONFIG_BCM_ANDROID)
 	ret1 = mext_check_arguments(orig_inode, donor_inode, orig_start,
+#else
+	ret = mext_check_arguments(orig_inode, donor_inode, orig_start,
+#endif
 				    donor_start, &len);
+#if !defined(CONFIG_BCM_KF_ANDROID) || !defined(CONFIG_BCM_ANDROID)
 	if (ret1)
+#else
+	if (ret)
+#endif
 		goto out;
 
 	file_end = (i_size_read(orig_inode) - 1) >> orig_inode->i_blkbits;
@@ -1227,13 +1309,23 @@ ext4_move_extents(struct file *o_filp, struct file *d_filp,
 	if (file_end < block_end)
 		len -= block_end - file_end;
 
+#if !defined(CONFIG_BCM_KF_ANDROID) || !defined(CONFIG_BCM_ANDROID)
 	ret1 = get_ext_path(orig_inode, block_start, &orig_path);
 	if (ret1)
+#else
+	ret = get_ext_path(orig_inode, block_start, &orig_path);
+	if (ret)
+#endif
 		goto out;
 
 	/* Get path structure to check the hole */
+#if !defined(CONFIG_BCM_KF_ANDROID) || !defined(CONFIG_BCM_ANDROID)
 	ret1 = get_ext_path(orig_inode, block_start, &holecheck_path);
 	if (ret1)
+#else
+	ret = get_ext_path(orig_inode, block_start, &holecheck_path);
+	if (ret)
+#endif
 		goto out;
 
 	depth = ext_depth(orig_inode);
@@ -1252,13 +1344,21 @@ ext4_move_extents(struct file *o_filp, struct file *d_filp,
 		last_extent = mext_next_extent(orig_inode,
 					holecheck_path, &ext_cur);
 		if (last_extent < 0) {
+#if !defined(CONFIG_BCM_KF_ANDROID) || !defined(CONFIG_BCM_ANDROID)
 			ret1 = last_extent;
+#else
+			ret = last_extent;
+#endif
 			goto out;
 		}
 		last_extent = mext_next_extent(orig_inode, orig_path,
 							&ext_dummy);
 		if (last_extent < 0) {
+#if !defined(CONFIG_BCM_KF_ANDROID) || !defined(CONFIG_BCM_ANDROID)
 			ret1 = last_extent;
+#else
+			ret = last_extent;
+#endif
 			goto out;
 		}
 		seq_start = le32_to_cpu(ext_cur->ee_block);
@@ -1272,7 +1372,11 @@ ext4_move_extents(struct file *o_filp, struct file *d_filp,
 	if (le32_to_cpu(ext_cur->ee_block) > block_end) {
 		ext4_debug("ext4 move extent: The specified range of file "
 							"may be the hole\n");
+#if !defined(CONFIG_BCM_KF_ANDROID) || !defined(CONFIG_BCM_ANDROID)
 		ret1 = -EINVAL;
+#else
+		ret = -EINVAL;
+#endif
 		goto out;
 	}
 
@@ -1292,7 +1396,11 @@ ext4_move_extents(struct file *o_filp, struct file *d_filp,
 		last_extent = mext_next_extent(orig_inode, holecheck_path,
 						&ext_cur);
 		if (last_extent < 0) {
+#if !defined(CONFIG_BCM_KF_ANDROID) || !defined(CONFIG_BCM_ANDROID)
 			ret1 = last_extent;
+#else
+			ret = last_extent;
+#endif
 			break;
 		}
 		add_blocks = ext4_ext_get_actual_len(ext_cur);
@@ -1349,18 +1457,30 @@ ext4_move_extents(struct file *o_filp, struct file *d_filp,
 						orig_page_offset,
 						data_offset_in_page,
 						block_len_in_page, uninit,
+#if !defined(CONFIG_BCM_KF_ANDROID) || !defined(CONFIG_BCM_ANDROID)
 						&ret1);
+#else
+						&ret);
+#endif
 
 			/* Count how many blocks we have exchanged */
 			*moved_len += block_len_in_page;
+#if !defined(CONFIG_BCM_KF_ANDROID) || !defined(CONFIG_BCM_ANDROID)
 			if (ret1 < 0)
+#else
+			if (ret < 0)
+#endif
 				break;
 			if (*moved_len > len) {
 				EXT4_ERROR_INODE(orig_inode,
 					"We replaced blocks too much! "
 					"sum of replaced: %llu requested: %llu",
 					*moved_len, len);
+#if !defined(CONFIG_BCM_KF_ANDROID) || !defined(CONFIG_BCM_ANDROID)
 				ret1 = -EIO;
+#else
+				ret = -EIO;
+#endif
 				break;
 			}
 
@@ -1374,22 +1494,36 @@ ext4_move_extents(struct file *o_filp, struct file *d_filp,
 		}
 
 		double_down_write_data_sem(orig_inode, donor_inode);
+#if !defined(CONFIG_BCM_KF_ANDROID) || !defined(CONFIG_BCM_ANDROID)
 		if (ret1 < 0)
+#else
+		if (ret < 0)
+#endif
 			break;
 
 		/* Decrease buffer counter */
 		if (holecheck_path)
 			ext4_ext_drop_refs(holecheck_path);
+#if !defined(CONFIG_BCM_KF_ANDROID) || !defined(CONFIG_BCM_ANDROID)
 		ret1 = get_ext_path(orig_inode, seq_start, &holecheck_path);
 		if (ret1)
+#else
+		ret = get_ext_path(orig_inode, seq_start, &holecheck_path);
+		if (ret)
+#endif
 			break;
 		depth = holecheck_path->p_depth;
 
 		/* Decrease buffer counter */
 		if (orig_path)
 			ext4_ext_drop_refs(orig_path);
+#if !defined(CONFIG_BCM_KF_ANDROID) || !defined(CONFIG_BCM_ANDROID)
 		ret1 = get_ext_path(orig_inode, seq_start, &orig_path);
 		if (ret1)
+#else
+		ret = get_ext_path(orig_inode, seq_start, &orig_path);
+		if (ret)
+#endif
 			break;
 
 		ext_cur = holecheck_path[depth].p_ext;
@@ -1412,12 +1546,20 @@ out:
 		kfree(holecheck_path);
 	}
 	double_up_write_data_sem(orig_inode, donor_inode);
+#if !defined(CONFIG_BCM_KF_ANDROID) || !defined(CONFIG_BCM_ANDROID)
 	ret2 = mext_inode_double_unlock(orig_inode, donor_inode);
 
 	if (ret1)
 		return ret1;
 	else if (ret2)
 		return ret2;
+#else
+	mext_inode_double_unlock(orig_inode, donor_inode);
+#endif
 
+#if !defined(CONFIG_BCM_KF_ANDROID) || !defined(CONFIG_BCM_ANDROID)
 	return 0;
+#else
+	return ret;
+#endif
 }

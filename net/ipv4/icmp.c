@@ -789,7 +789,11 @@ static void icmp_redirect(struct sk_buff *skb)
 	if (iph->protocol == IPPROTO_ICMP &&
 	    iph->ihl >= 5 &&
 	    pskb_may_pull(skb, (iph->ihl<<2)+8)) {
+#if !defined(CONFIG_BCM_KF_ANDROID) || !defined(CONFIG_BCM_ANDROID)
 		ping_err(skb, icmp_hdr(skb)->un.gateway);
+#else
+		ping_v4_err(skb, icmp_hdr(skb)->un.gateway);
+#endif
 	}
 
 out:

@@ -356,8 +356,15 @@ extern int unregister_pm_notifier(struct notifier_block *nb);
 extern bool events_check_enabled;
 
 extern bool pm_wakeup_pending(void);
+#if !defined(CONFIG_BCM_KF_ANDROID) || !defined(CONFIG_BCM_ANDROID)
 extern bool pm_get_wakeup_count(unsigned int *count);
+#else
+extern bool pm_get_wakeup_count(unsigned int *count, bool block);
+#endif
 extern bool pm_save_wakeup_count(unsigned int count);
+#if defined(CONFIG_BCM_KF_ANDROID) && defined(CONFIG_BCM_ANDROID)
+extern void pm_wakep_autosleep_enabled(bool set);
+#endif
 
 static inline void lock_system_sleep(void)
 {
@@ -407,6 +414,19 @@ static inline void unlock_system_sleep(void) {}
 
 #endif /* !CONFIG_PM_SLEEP */
 
+#if defined(CONFIG_BCM_KF_ANDROID) && defined(CONFIG_BCM_ANDROID)
+#ifdef CONFIG_PM_AUTOSLEEP
+
+/* kernel/power/autosleep.c */
+void queue_up_suspend_work(void);
+
+#else /* !CONFIG_PM_AUTOSLEEP */
+
+static inline void queue_up_suspend_work(void) {}
+
+#endif /* !CONFIG_PM_AUTOSLEEP */
+
+#endif
 #ifdef CONFIG_ARCH_SAVE_PAGE_KEYS
 /*
  * The ARCH_SAVE_PAGE_KEYS functions can be used by an architecture

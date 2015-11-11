@@ -589,6 +589,9 @@ static struct pnfs_layoutdriver_type objlayout_type = {
 	.flags                   = PNFS_LAYOUTRET_ON_SETATTR |
 				   PNFS_LAYOUTRET_ON_ERROR,
 
+#if defined(CONFIG_BCM_KF_ANDROID) && defined(CONFIG_BCM_ANDROID)
+	.owner		       	 = THIS_MODULE,
+#endif
 	.alloc_layout_hdr        = objlayout_alloc_layout_hdr,
 	.free_layout_hdr         = objlayout_free_layout_hdr,
 

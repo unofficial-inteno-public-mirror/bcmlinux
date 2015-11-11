@@ -779,6 +779,10 @@ struct se_subsystem_dev {
 };
 
 struct se_device {
+#if defined(CONFIG_BCM_KF_ANDROID) && defined(CONFIG_BCM_ANDROID)
+#define SE_DEV_LINK_MAGIC			0xfeeddeef
+	u32			dev_link_magic;
+#endif
 	/* RELATIVE TARGET PORT IDENTIFER Counter */
 	u16			dev_rpti_counter;
 	/* Used for SAM Task Attribute ordering */
@@ -869,6 +873,10 @@ struct se_port_stat_grps {
 };
 
 struct se_lun {
+#if defined(CONFIG_BCM_KF_ANDROID) && defined(CONFIG_BCM_ANDROID)
+#define SE_LUN_LINK_MAGIC			0xffff7771
+	u32			lun_link_magic;
+#endif
 	/* See transport_lun_status_table */
 	enum transport_lun_status_table lun_status;
 	u32			lun_access;

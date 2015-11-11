@@ -645,7 +645,18 @@ static int fuse_unlink(struct inode *dir, struct dentry *entry)
 
 		spin_lock(&fc->lock);
 		fi->attr_version = ++fc->attr_version;
+#if !defined(CONFIG_BCM_KF_ANDROID) || !defined(CONFIG_BCM_ANDROID)
 		drop_nlink(inode);
+#else
+		/*
+		 * If i_nlink == 0 then unlink doesn't make sense, yet this can
+		 * happen if userspace filesystem is careless.  It would be
+		 * difficult to enforce correct nlink usage so just ignore this
+		 * condition here
+		 */
+		if (inode->i_nlink > 0)
+			drop_nlink(inode);
+#endif
 		spin_unlock(&fc->lock);
 		fuse_invalidate_attr(inode);
 		fuse_invalidate_attr(dir);

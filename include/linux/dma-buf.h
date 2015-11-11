@@ -92,6 +92,10 @@ struct dma_buf_ops {
 	void (*kunmap_atomic)(struct dma_buf *, unsigned long, void *);
 	void *(*kmap)(struct dma_buf *, unsigned long);
 	void (*kunmap)(struct dma_buf *, unsigned long, void *);
+#if defined(CONFIG_BCM_KF_ANDROID) && defined(CONFIG_BCM_ANDROID)
+
+	int (*mmap)(struct dma_buf *, struct vm_area_struct *vma);
+#endif
 };
 
 /**
@@ -167,6 +171,11 @@ void *dma_buf_kmap_atomic(struct dma_buf *, unsigned long);
 void dma_buf_kunmap_atomic(struct dma_buf *, unsigned long, void *);
 void *dma_buf_kmap(struct dma_buf *, unsigned long);
 void dma_buf_kunmap(struct dma_buf *, unsigned long, void *);
+#if defined(CONFIG_BCM_KF_ANDROID) && defined(CONFIG_BCM_ANDROID)
+
+int dma_buf_mmap(struct dma_buf *, struct vm_area_struct *,
+		 unsigned long);
+#endif
 #else
 
 static inline struct dma_buf_attachment *dma_buf_attach(struct dma_buf *dmabuf,
@@ -248,6 +257,15 @@ static inline void dma_buf_kunmap(struct dma_buf *dmabuf,
 				  unsigned long pnum, void *vaddr)
 {
 }
+#if defined(CONFIG_BCM_KF_ANDROID) && defined(CONFIG_BCM_ANDROID)
+
+static inline int dma_buf_mmap(struct dma_buf *dmabuf,
+			       struct vm_area_struct *vma,
+			       unsigned long pgoff)
+{
+	return -ENODEV;
+}
+#endif
 #endif /* CONFIG_DMA_SHARED_BUFFER */
 
 #endif /* __DMA_BUF_H__ */

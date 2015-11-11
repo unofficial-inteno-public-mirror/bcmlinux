@@ -384,14 +384,24 @@ static inline __u8 uac_processing_unit_iProcessing(struct uac_processing_unit_de
 						   int protocol)
 {
 	__u8 control_size = uac_processing_unit_bControlSize(desc, protocol);
+#if !defined(CONFIG_BCM_KF_ANDROID) || !defined(CONFIG_BCM_ANDROID)
 	return desc->baSourceID[desc->bNrInPins + control_size];
+#else
+	return *(uac_processing_unit_bmControls(desc, protocol)
+			+ control_size);
+#endif
 }
 
 static inline __u8 *uac_processing_unit_specific(struct uac_processing_unit_descriptor *desc,
 						 int protocol)
 {
 	__u8 control_size = uac_processing_unit_bControlSize(desc, protocol);
+#if !defined(CONFIG_BCM_KF_ANDROID) || !defined(CONFIG_BCM_ANDROID)
 	return &desc->baSourceID[desc->bNrInPins + control_size + 1];
+#else
+	return uac_processing_unit_bmControls(desc, protocol)
+			+ control_size + 1;
+#endif
 }
 
 /* 4.5.2 Class-Specific AS Interface Descriptor */

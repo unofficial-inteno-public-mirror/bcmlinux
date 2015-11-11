@@ -173,6 +173,9 @@ int usb_hcd_pci_probe(struct pci_dev *dev, const struct pci_device_id *id)
 	struct hc_driver	*driver;
 	struct usb_hcd		*hcd;
 	int			retval;
+#if defined(CONFIG_BCM_KF_ANDROID) && defined(CONFIG_BCM_ANDROID)
+	int			hcd_irq = 0;
+#endif
 
 	if (usb_disabled())
 		return -ENODEV;
@@ -190,12 +193,24 @@ int usb_hcd_pci_probe(struct pci_dev *dev, const struct pci_device_id *id)
 	/* The xHCI driver supports MSI and MSI-X,
 	 * so don't fail if the BIOS doesn't provide a legacy IRQ.
 	 */
+#if !defined(CONFIG_BCM_KF_ANDROID) || !defined(CONFIG_BCM_ANDROID)
 	if (!dev->irq && (driver->flags & HCD_MASK) != HCD_USB3) {
 		dev_err(&dev->dev,
 			"Found HC with no IRQ.  Check BIOS/PCI %s setup!\n",
 			pci_name(dev));
 		retval = -ENODEV;
 		goto disable_pci;
+#else
+	if ((driver->flags & HCD_MASK) != HCD_USB3) {
+		if (!dev->irq) {
+			dev_err(&dev->dev,
+			"Found HC with no IRQ. Check BIOS/PCI %s setup!\n",
+				pci_name(dev));
+			retval = -ENODEV;
+			goto disable_pci;
+		}
+		hcd_irq = dev->irq;
+#endif
 	}
 
 	hcd = usb_create_hcd(driver, &dev->dev, pci_name(dev));
@@ -245,7 +260,11 @@ int usb_hcd_pci_probe(struct pci_dev *dev, const struct pci_device_id *id)
 
 	pci_set_master(dev);
 
+#if !defined(CONFIG_BCM_KF_ANDROID) || !defined(CONFIG_BCM_ANDROID)
 	retval = usb_add_hcd(hcd, dev->irq, IRQF_SHARED);
+#else
+	retval = usb_add_hcd(hcd, hcd_irq, IRQF_SHARED);
+#endif
 	if (retval != 0)
 		goto unmap_registers;
 	set_hs_companion(dev, hcd);

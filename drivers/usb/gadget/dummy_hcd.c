@@ -126,10 +126,14 @@ static const char ep0name[] = "ep0";
 static const char *const ep_name[] = {
 	ep0name,				/* everyone has ep0 */
 
+#if !defined(CONFIG_BCM_KF_ANDROID) || !defined(CONFIG_BCM_ANDROID)
 	/* act like a net2280: high speed, six configurable endpoints */
 	"ep-a", "ep-b", "ep-c", "ep-d", "ep-e", "ep-f",
 
 	/* or like pxa250: fifteen fixed function endpoints */
+#else
+	/* act like a pxa250: fifteen fixed function endpoints */
+#endif
 	"ep1in-bulk", "ep2out-bulk", "ep3in-iso", "ep4out-iso", "ep5in-int",
 	"ep6in-bulk", "ep7out-bulk", "ep8in-iso", "ep9out-iso", "ep10in-int",
 	"ep11in-bulk", "ep12out-bulk", "ep13in-iso", "ep14out-iso",
@@ -137,6 +141,12 @@ static const char *const ep_name[] = {
 
 	/* or like sa1100: two fixed function endpoints */
 	"ep1out-bulk", "ep2in-bulk",
+#if defined(CONFIG_BCM_KF_ANDROID) && defined(CONFIG_BCM_ANDROID)
+
+	/* and now some generic EPs so we have enough in multi config */
+	"ep3out", "ep4in", "ep5out", "ep6out", "ep7in", "ep8out", "ep9in",
+	"ep10out", "ep11out", "ep12in", "ep13out", "ep14in", "ep15out",
+#endif
 };
 #define DUMMY_ENDPOINTS	ARRAY_SIZE(ep_name)
 
@@ -2505,10 +2515,15 @@ static int dummy_hcd_probe(struct platform_device *pdev)
 	hs_hcd->has_tt = 1;
 
 	retval = usb_add_hcd(hs_hcd, 0, 0);
+#if !defined(CONFIG_BCM_KF_ANDROID) || !defined(CONFIG_BCM_ANDROID)
 	if (retval != 0) {
 		usb_put_hcd(hs_hcd);
 		return retval;
 	}
+#else
+	if (retval)
+		goto put_usb2_hcd;
+#endif
 
 	if (mod_data.is_super_speed) {
 		ss_hcd = usb_create_shared_hcd(&dummy_hcd, &pdev->dev,
@@ -2527,6 +2542,10 @@ static int dummy_hcd_probe(struct platform_device *pdev)
 put_usb3_hcd:
 	usb_put_hcd(ss_hcd);
 dealloc_usb2_hcd:
+#if defined(CONFIG_BCM_KF_ANDROID) && defined(CONFIG_BCM_ANDROID)
+	usb_remove_hcd(hs_hcd);
+put_usb2_hcd:
+#endif
 	usb_put_hcd(hs_hcd);
 	the_controller.hs_hcd = the_controller.ss_hcd = NULL;
 	return retval;

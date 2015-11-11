@@ -4,11 +4,13 @@
 #include <linux/rwsem.h>
 
 struct autogroup {
+#if !defined(CONFIG_BCM_KF_ANDROID) || !defined(CONFIG_BCM_ANDROID)
 	/*
 	 * reference doesn't mean how many thread attach to this
 	 * autogroup now. It just stands for the number of task
 	 * could use this autogroup.
 	 */
+#endif
 	struct kref		kref;
 	struct task_group	*tg;
 	struct rw_semaphore	lock;

@@ -361,7 +361,11 @@ static inline void ClearPageCompound(struct page *page)
  * pages on the LRU and/or pagecache.
  */
 TESTPAGEFLAG(Compound, compound)
+#if !defined(CONFIG_BCM_KF_ANDROID) || !defined(CONFIG_BCM_ANDROID)
 __PAGEFLAG(Head, compound)
+#else
+__SETPAGEFLAG(Head, compound)  __CLEARPAGEFLAG(Head, compound)
+#endif
 
 /*
  * PG_reclaim is used in combination with PG_compound to mark the
@@ -373,8 +377,18 @@ __PAGEFLAG(Head, compound)
  * PG_compound & PG_reclaim	=> Tail page
  * PG_compound & ~PG_reclaim	=> Head page
  */
+#if defined(CONFIG_BCM_KF_ANDROID) && defined(CONFIG_BCM_ANDROID)
+#define PG_head_mask ((1L << PG_compound))
+#endif
 #define PG_head_tail_mask ((1L << PG_compound) | (1L << PG_reclaim))
 
+#if defined(CONFIG_BCM_KF_ANDROID) && defined(CONFIG_BCM_ANDROID)
+static inline int PageHead(struct page *page)
+{
+	return ((page->flags & PG_head_tail_mask) == PG_head_mask);
+}
+
+#endif
 static inline int PageTail(struct page *page)
 {
 	return ((page->flags & PG_head_tail_mask) == PG_head_tail_mask);

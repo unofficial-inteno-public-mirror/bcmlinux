@@ -280,7 +280,11 @@ abort:
 	kfree(conf->strip_zone);
 	kfree(conf->devlist);
 	kfree(conf);
+#if !defined(CONFIG_BCM_KF_ANDROID) || !defined(CONFIG_BCM_ANDROID)
 	*private_conf = NULL;
+#else
+	*private_conf = ERR_PTR(err);
+#endif
 	return err;
 }
 
@@ -402,7 +406,12 @@ static sector_t raid0_size(struct mddev *mddev, sector_t sectors, int raid_disks
 		  "%s does not support generic reshape\n", __func__);
 
 	rdev_for_each(rdev, mddev)
+#if !defined(CONFIG_BCM_KF_ANDROID) || !defined(CONFIG_BCM_ANDROID)
 		array_sectors += rdev->sectors;
+#else
+		array_sectors += (rdev->sectors &
+				  ~(sector_t)(mddev->chunk_sectors-1));
+#endif
 
 	return array_sectors;
 }

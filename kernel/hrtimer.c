@@ -45,6 +45,9 @@
 #include <linux/debugobjects.h>
 #include <linux/sched.h>
 #include <linux/timer.h>
+#if defined(CONFIG_BCM_KF_ANDROID) && defined(CONFIG_BCM_ANDROID)
+#include <linux/freezer.h>
+#endif
 
 #include <asm/uaccess.h>
 
@@ -643,9 +646,14 @@ static inline void hrtimer_init_hres(struct hrtimer_cpu_base *base)
  * and expiry check is done in the hrtimer_interrupt or in the softirq.
  */
 static inline int hrtimer_enqueue_reprogram(struct hrtimer *timer,
+#if !defined(CONFIG_BCM_KF_ANDROID) || !defined(CONFIG_BCM_ANDROID)
 					    struct hrtimer_clock_base *base,
 					    int wakeup)
+#else
+					    struct hrtimer_clock_base *base)
+#endif
 {
+#if !defined(CONFIG_BCM_KF_ANDROID) || !defined(CONFIG_BCM_ANDROID)
 	if (base->cpu_base->hres_active && hrtimer_reprogram(timer, base)) {
 		if (!wakeup)
 			return -ETIME;
@@ -667,6 +675,9 @@ static inline int hrtimer_enqueue_reprogram(struct hrtimer *timer,
 	}
 
 	return 0;
+#else
+	return base->cpu_base->hres_active && hrtimer_reprogram(timer, base);
+#endif
 }
 
 static inline ktime_t hrtimer_update_base(struct hrtimer_cpu_base *base)
@@ -747,8 +758,12 @@ static inline int hrtimer_switch_to_hres(void) { return 0; }
 static inline void
 hrtimer_force_reprogram(struct hrtimer_cpu_base *base, int skip_equal) { }
 static inline int hrtimer_enqueue_reprogram(struct hrtimer *timer,
+#if !defined(CONFIG_BCM_KF_ANDROID) || !defined(CONFIG_BCM_ANDROID)
 					    struct hrtimer_clock_base *base,
 					    int wakeup)
+#else
+					    struct hrtimer_clock_base *base)
+#endif
 {
 	return 0;
 }
@@ -1054,18 +1069,33 @@ int __hrtimer_start_range_ns(struct hrtimer *timer, ktime_t tim,
 	 *
 	 * XXX send_remote_softirq() ?
 	 */
+#if !defined(CONFIG_BCM_KF_ANDROID) || !defined(CONFIG_BCM_ANDROID)
 	if (leftmost && new_base->cpu_base == &__get_cpu_var(hrtimer_bases)) {
 		ret = hrtimer_enqueue_reprogram(timer, new_base, wakeup);
 		if (ret) {
+#else
+	if (leftmost && new_base->cpu_base == &__get_cpu_var(hrtimer_bases)
+		&& hrtimer_enqueue_reprogram(timer, new_base)) {
+		if (wakeup) {
+#endif
 			/*
 			 * In case we failed to reprogram the timer (mostly
 			 * because out current timer is already elapsed),
 			 * remove it again and report a failure. This avoids
 			 * stale base->first entries.
 			 */
+#if !defined(CONFIG_BCM_KF_ANDROID) || !defined(CONFIG_BCM_ANDROID)
 			debug_deactivate(timer);
 			__remove_hrtimer(timer, new_base,
 					timer->state & HRTIMER_STATE_CALLBACK, 0);
+#else
+			raw_spin_unlock(&new_base->cpu_base->lock);
+			raise_softirq_irqoff(HRTIMER_SOFTIRQ);
+			local_irq_restore(flags);
+			return ret;
+		} else {
+			__raise_softirq_irqoff(HRTIMER_SOFTIRQ);
+#endif
 		}
 	}
 
@@ -1732,7 +1762,11 @@ static int __sched do_nanosleep(struct hrtimer_sleeper *t, enum hrtimer_mode mod
 			t->task = NULL;
 
 		if (likely(t->task))
+#if !defined(CONFIG_BCM_KF_ANDROID) || !defined(CONFIG_BCM_ANDROID)
 			schedule();
+#else
+			freezable_schedule();
+#endif
 
 		hrtimer_cancel(&t->timer);
 		mode = HRTIMER_MODE_ABS;

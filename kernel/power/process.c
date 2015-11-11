@@ -30,9 +30,17 @@ static int try_to_freeze_tasks(bool user_only)
 	unsigned int todo;
 	bool wq_busy = false;
 	struct timeval start, end;
+#if !defined(CONFIG_BCM_KF_ANDROID) || !defined(CONFIG_BCM_ANDROID)
 	u64 elapsed_csecs64;
 	unsigned int elapsed_csecs;
+#else
+	u64 elapsed_msecs64;
+	unsigned int elapsed_msecs;
+#endif
 	bool wakeup = false;
+#if defined(CONFIG_BCM_KF_ANDROID) && defined(CONFIG_BCM_ANDROID)
+	int sleep_usecs = USEC_PER_MSEC;
+#endif
 
 	do_gettimeofday(&start);
 
@@ -81,20 +89,40 @@ static int try_to_freeze_tasks(bool user_only)
 		 * We need to retry, but first give the freezing tasks some
 		 * time to enter the regrigerator.
 		 */
+#if !defined(CONFIG_BCM_KF_ANDROID) || !defined(CONFIG_BCM_ANDROID)
 		msleep(10);
+#else
+		usleep_range(sleep_usecs / 2, sleep_usecs);
+		if (sleep_usecs < 8 * USEC_PER_MSEC)
+			sleep_usecs *= 2;
+#endif
 	}
 
 	do_gettimeofday(&end);
+#if !defined(CONFIG_BCM_KF_ANDROID) || !defined(CONFIG_BCM_ANDROID)
 	elapsed_csecs64 = timeval_to_ns(&end) - timeval_to_ns(&start);
 	do_div(elapsed_csecs64, NSEC_PER_SEC / 100);
 	elapsed_csecs = elapsed_csecs64;
+#else
+	elapsed_msecs64 = timeval_to_ns(&end) - timeval_to_ns(&start);
+	do_div(elapsed_msecs64, NSEC_PER_MSEC);
+	elapsed_msecs = elapsed_msecs64;
+#endif
 
 	if (todo) {
 		printk("\n");
+#if !defined(CONFIG_BCM_KF_ANDROID) || !defined(CONFIG_BCM_ANDROID)
 		printk(KERN_ERR "Freezing of tasks %s after %d.%02d seconds "
+#else
+		printk(KERN_ERR "Freezing of tasks %s after %d.%03d seconds "
+#endif
 		       "(%d tasks refusing to freeze, wq_busy=%d):\n",
 		       wakeup ? "aborted" : "failed",
+#if !defined(CONFIG_BCM_KF_ANDROID) || !defined(CONFIG_BCM_ANDROID)
 		       elapsed_csecs / 100, elapsed_csecs % 100,
+#else
+		       elapsed_msecs / 1000, elapsed_msecs % 1000,
+#endif
 		       todo - wq_busy, wq_busy);
 
 		if (!wakeup) {
@@ -107,8 +135,13 @@ static int try_to_freeze_tasks(bool user_only)
 			read_unlock(&tasklist_lock);
 		}
 	} else {
+#if !defined(CONFIG_BCM_KF_ANDROID) || !defined(CONFIG_BCM_ANDROID)
 		printk("(elapsed %d.%02d seconds) ", elapsed_csecs / 100,
 			elapsed_csecs % 100);
+#else
+		printk("(elapsed %d.%03d seconds) ", elapsed_msecs / 1000,
+			elapsed_msecs % 1000);
+#endif
 	}
 
 	return todo ? -EBUSY : 0;

@@ -295,14 +295,23 @@ static inline struct ipq *ip_find(struct net *net, struct iphdr *iph, u32 user)
 	hash = ipqhashfn(iph->id, iph->saddr, iph->daddr, iph->protocol);
 
 	q = inet_frag_find(&net->ipv4.frags, &ip4_frags, &arg, hash);
+#if !defined(CONFIG_BCM_KF_ANDROID) || !defined(CONFIG_BCM_ANDROID)
 	if (q == NULL)
 		goto out_nomem;
 
+#else
+	if (IS_ERR_OR_NULL(q)) {
+		inet_frag_maybe_warn_overflow(q, pr_fmt());
+		return NULL;
+	}
+#endif
 	return container_of(q, struct ipq, q);
+#if !defined(CONFIG_BCM_KF_ANDROID) || !defined(CONFIG_BCM_ANDROID)
 
 out_nomem:
 	LIMIT_NETDEBUG(KERN_ERR pr_fmt("ip_frag_create: no memory left !\n"));
 	return NULL;
+#endif
 }
 
 /* Is the fragment too far ahead to be part of ipq? */
@@ -689,28 +698,54 @@ EXPORT_SYMBOL(ip_defrag);
 
 struct sk_buff *ip_check_defrag(struct sk_buff *skb, u32 user)
 {
+#if !defined(CONFIG_BCM_KF_ANDROID) || !defined(CONFIG_BCM_ANDROID)
 	const struct iphdr *iph;
+#else
+	struct iphdr iph;
+#endif
 	u32 len;
 
 	if (skb->protocol != htons(ETH_P_IP))
 		return skb;
 
+#if !defined(CONFIG_BCM_KF_ANDROID) || !defined(CONFIG_BCM_ANDROID)
 	if (!pskb_may_pull(skb, sizeof(struct iphdr)))
+#else
+	if (!skb_copy_bits(skb, 0, &iph, sizeof(iph)))
+#endif
 		return skb;
 
+#if !defined(CONFIG_BCM_KF_ANDROID) || !defined(CONFIG_BCM_ANDROID)
 	iph = ip_hdr(skb);
 	if (iph->ihl < 5 || iph->version != 4)
 		return skb;
 	if (!pskb_may_pull(skb, iph->ihl*4))
+#else
+	if (iph.ihl < 5 || iph.version != 4)
+#endif
 		return skb;
+#if !defined(CONFIG_BCM_KF_ANDROID) || !defined(CONFIG_BCM_ANDROID)
 	iph = ip_hdr(skb);
 	len = ntohs(iph->tot_len);
 	if (skb->len < len || len < (iph->ihl * 4))
+#else
+
+	len = ntohs(iph.tot_len);
+	if (skb->len < len || len < (iph.ihl * 4))
+#endif
 		return skb;
 
+#if !defined(CONFIG_BCM_KF_ANDROID) || !defined(CONFIG_BCM_ANDROID)
 	if (ip_is_fragment(ip_hdr(skb))) {
+#else
+	if (ip_is_fragment(&iph)) {
+#endif
 		skb = skb_share_check(skb, GFP_ATOMIC);
 		if (skb) {
+#if defined(CONFIG_BCM_KF_ANDROID) && defined(CONFIG_BCM_ANDROID)
+			if (!pskb_may_pull(skb, iph.ihl*4))
+				return skb;
+#endif
 			if (pskb_trim_rcsum(skb, len))
 				return skb;
 			memset(IPCB(skb), 0, sizeof(struct inet_skb_parm));

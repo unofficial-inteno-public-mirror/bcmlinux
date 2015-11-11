@@ -694,8 +694,12 @@ static int nfs_create_rpc_client(struct nfs_client *clp,
  */
 static void nfs_destroy_server(struct nfs_server *server)
 {
+#if !defined(CONFIG_BCM_KF_ANDROID) || !defined(CONFIG_BCM_ANDROID)
 	if (!(server->flags & NFS_MOUNT_LOCAL_FLOCK) ||
 			!(server->flags & NFS_MOUNT_LOCAL_FCNTL))
+#else
+	if (server->nlm_host)
+#endif
 		nlmclnt_done(server->nlm_host);
 }
 

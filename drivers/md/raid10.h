@@ -104,7 +104,11 @@ struct r10bio {
 	 * We choose the number when they are allocated.
 	 * We sometimes need an extra bio to write to the replacement.
 	 */
+#if !defined(CONFIG_BCM_KF_ANDROID) || !defined(CONFIG_BCM_ANDROID)
 	struct {
+#else
+	struct r10dev {
+#endif
 		struct bio	*bio;
 		union {
 			struct bio	*repl_bio; /* used for resync and

@@ -388,9 +388,15 @@ static int crypto_ablkcipher_report(struct sk_buff *skb, struct crypto_alg *alg)
 {
 	struct crypto_report_blkcipher rblkcipher;
 
+#if !defined(CONFIG_BCM_KF_ANDROID) || !defined(CONFIG_BCM_ANDROID)
 	snprintf(rblkcipher.type, CRYPTO_MAX_ALG_NAME, "%s", "ablkcipher");
 	snprintf(rblkcipher.geniv, CRYPTO_MAX_ALG_NAME, "%s",
 		 alg->cra_ablkcipher.geniv ?: "<default>");
+#else
+	strncpy(rblkcipher.type, "ablkcipher", sizeof(rblkcipher.type));
+	strncpy(rblkcipher.geniv, alg->cra_ablkcipher.geniv ?: "<default>",
+		sizeof(rblkcipher.geniv));
+#endif
 
 	rblkcipher.blocksize = alg->cra_blocksize;
 	rblkcipher.min_keysize = alg->cra_ablkcipher.min_keysize;
@@ -469,9 +475,15 @@ static int crypto_givcipher_report(struct sk_buff *skb, struct crypto_alg *alg)
 {
 	struct crypto_report_blkcipher rblkcipher;
 
+#if !defined(CONFIG_BCM_KF_ANDROID) || !defined(CONFIG_BCM_ANDROID)
 	snprintf(rblkcipher.type, CRYPTO_MAX_ALG_NAME, "%s", "givcipher");
 	snprintf(rblkcipher.geniv, CRYPTO_MAX_ALG_NAME, "%s",
 		 alg->cra_ablkcipher.geniv ?: "<built-in>");
+#else
+	strncpy(rblkcipher.type, "givcipher", sizeof(rblkcipher.type));
+	strncpy(rblkcipher.geniv, alg->cra_ablkcipher.geniv ?: "<built-in>",
+		sizeof(rblkcipher.geniv));
+#endif
 
 	rblkcipher.blocksize = alg->cra_blocksize;
 	rblkcipher.min_keysize = alg->cra_ablkcipher.min_keysize;

@@ -223,6 +223,10 @@ static void input_handle_event(struct input_dev *dev,
 	case EV_SYN:
 		switch (code) {
 		case SYN_CONFIG:
+#if defined(CONFIG_BCM_KF_ANDROID) && defined(CONFIG_BCM_ANDROID)
+		case SYN_TIME_SEC:
+		case SYN_TIME_NSEC:
+#endif
 			disposition = INPUT_PASS_TO_ALL;
 			break;
 

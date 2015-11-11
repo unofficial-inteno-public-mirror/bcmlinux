@@ -2897,9 +2897,13 @@ static int nand_flash_detect_onfi(struct mtd_info *mtd, struct nand_chip *chip,
 	if (le16_to_cpu(p->features) & 1)
 		*busw = NAND_BUSWIDTH_16;
 
+#if !defined(CONFIG_BCM_KF_ANDROID) || !defined(CONFIG_BCM_ANDROID)
 	chip->options &= ~NAND_CHIPOPTIONS_MSK;
 	chip->options |= (NAND_NO_READRDY |
 			NAND_NO_AUTOINCR) & NAND_CHIPOPTIONS_MSK;
+#else
+	chip->options |= NAND_NO_READRDY | NAND_NO_AUTOINCR;
+#endif
 
 	pr_info("ONFI flash detected\n");
 	return 1;
@@ -3064,9 +3068,14 @@ static struct nand_flash_dev *nand_get_flash_type(struct mtd_info *mtd,
 			mtd->erasesize <<= ((id_data[3] & 0x03) << 1);
 		}
 	}
+#if !defined(CONFIG_BCM_KF_ANDROID) || !defined(CONFIG_BCM_ANDROID)
 	/* Get chip options, preserve non chip based options */
 	chip->options &= ~NAND_CHIPOPTIONS_MSK;
 	chip->options |= type->options & NAND_CHIPOPTIONS_MSK;
+#else
+	/* Get chip options */
+	chip->options |= type->options;
+#endif
 
 	/*
 	 * Check if chip is not a Samsung device. Do not clear the

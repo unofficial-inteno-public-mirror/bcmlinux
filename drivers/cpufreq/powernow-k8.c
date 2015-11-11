@@ -35,7 +35,9 @@
 #include <linux/slab.h>
 #include <linux/string.h>
 #include <linux/cpumask.h>
+#if !defined(CONFIG_BCM_KF_ANDROID) || !defined(CONFIG_BCM_ANDROID)
 #include <linux/sched.h>	/* for current / set_cpus_allowed() */
+#endif
 #include <linux/io.h>
 #include <linux/delay.h>
 
@@ -1139,16 +1141,37 @@ static int transition_frequency_pstate(struct powernow_k8_data *data,
 	return res;
 }
 
+#if !defined(CONFIG_BCM_KF_ANDROID) || !defined(CONFIG_BCM_ANDROID)
 /* Driver entry point to switch to the target frequency */
 static int powernowk8_target(struct cpufreq_policy *pol,
 		unsigned targfreq, unsigned relation)
+#else
+struct powernowk8_target_arg {
+	struct cpufreq_policy		*pol;
+	unsigned			targfreq;
+	unsigned			relation;
+};
+
+static long powernowk8_target_fn(void *arg)
+#endif
 {
+#if !defined(CONFIG_BCM_KF_ANDROID) || !defined(CONFIG_BCM_ANDROID)
 	cpumask_var_t oldmask;
+#else
+	struct powernowk8_target_arg *pta = arg;
+	struct cpufreq_policy *pol = pta->pol;
+	unsigned targfreq = pta->targfreq;
+	unsigned relation = pta->relation;
+#endif
 	struct powernow_k8_data *data = per_cpu(powernow_data, pol->cpu);
 	u32 checkfid;
 	u32 checkvid;
 	unsigned int newstate;
+#if !defined(CONFIG_BCM_KF_ANDROID) || !defined(CONFIG_BCM_ANDROID)
 	int ret = -EIO;
+#else
+	int ret;
+#endif
 
 	if (!data)
 		return -EINVAL;
@@ -1156,6 +1179,7 @@ static int powernowk8_target(struct cpufreq_policy *pol,
 	checkfid = data->currfid;
 	checkvid = data->currvid;
 
+#if !defined(CONFIG_BCM_KF_ANDROID) || !defined(CONFIG_BCM_ANDROID)
 	/* only run on specific CPU from here on. */
 	/* This is poor form: use a workqueue or smp_call_function_single */
 	if (!alloc_cpumask_var(&oldmask, GFP_KERNEL))
@@ -1169,16 +1193,25 @@ static int powernowk8_target(struct cpufreq_policy *pol,
 		goto err_out;
 	}
 
+#endif
 	if (pending_bit_stuck()) {
 		printk(KERN_ERR PFX "failing targ, change pending bit set\n");
+#if !defined(CONFIG_BCM_KF_ANDROID) || !defined(CONFIG_BCM_ANDROID)
 		goto err_out;
+#else
+		return -EIO;
+#endif
 	}
 
 	pr_debug("targ: cpu %d, %d kHz, min %d, max %d, relation %d\n",
 		pol->cpu, targfreq, pol->min, pol->max, relation);
 
 	if (query_current_values_with_pending_wait(data))
+#if !defined(CONFIG_BCM_KF_ANDROID) || !defined(CONFIG_BCM_ANDROID)
 		goto err_out;
+#else
+		return -EIO;
+#endif
 
 	if (cpu_family != CPU_HW_PSTATE) {
 		pr_debug("targ: curr fid 0x%x, vid 0x%x\n",
@@ -1196,7 +1229,11 @@ static int powernowk8_target(struct cpufreq_policy *pol,
 
 	if (cpufreq_frequency_table_target(pol, data->powernow_table,
 				targfreq, relation, &newstate))
+#if !defined(CONFIG_BCM_KF_ANDROID) || !defined(CONFIG_BCM_ANDROID)
 		goto err_out;
+#else
+		return -EIO;
+#endif
 
 	mutex_lock(&fidvid_mutex);
 
@@ -1209,9 +1246,15 @@ static int powernowk8_target(struct cpufreq_policy *pol,
 		ret = transition_frequency_fidvid(data, newstate);
 	if (ret) {
 		printk(KERN_ERR PFX "transition frequency failed\n");
+#if !defined(CONFIG_BCM_KF_ANDROID) || !defined(CONFIG_BCM_ANDROID)
 		ret = 1;
+#endif
 		mutex_unlock(&fidvid_mutex);
+#if !defined(CONFIG_BCM_KF_ANDROID) || !defined(CONFIG_BCM_ANDROID)
 		goto err_out;
+#else
+		return 1;
+#endif
 	}
 	mutex_unlock(&fidvid_mutex);
 
@@ -1220,12 +1263,28 @@ static int powernowk8_target(struct cpufreq_policy *pol,
 				data->powernow_table[newstate].index);
 	else
 		pol->cur = find_khz_freq_from_fid(data->currfid);
+#if !defined(CONFIG_BCM_KF_ANDROID) || !defined(CONFIG_BCM_ANDROID)
 	ret = 0;
+#endif
 
+#if !defined(CONFIG_BCM_KF_ANDROID) || !defined(CONFIG_BCM_ANDROID)
 err_out:
 	set_cpus_allowed_ptr(current, oldmask);
 	free_cpumask_var(oldmask);
 	return ret;
+#else
+	return 0;
+}
+
+/* Driver entry point to switch to the target frequency */
+static int powernowk8_target(struct cpufreq_policy *pol,
+		unsigned targfreq, unsigned relation)
+{
+	struct powernowk8_target_arg pta = { .pol = pol, .targfreq = targfreq,
+					     .relation = relation };
+
+	return work_on_cpu(pol->cpu, powernowk8_target_fn, &pta);
+#endif
 }
 
 /* Driver entry point to verify the policy and range of frequencies */

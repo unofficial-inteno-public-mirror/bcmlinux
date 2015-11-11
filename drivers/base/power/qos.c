@@ -355,18 +355,36 @@ EXPORT_SYMBOL_GPL(dev_pm_qos_remove_request);
  */
 int dev_pm_qos_add_notifier(struct device *dev, struct notifier_block *notifier)
 {
+#if !defined(CONFIG_BCM_KF_ANDROID) || !defined(CONFIG_BCM_ANDROID)
 	int retval = 0;
+#else
+	int ret = 0;
+#endif
 
 	mutex_lock(&dev_pm_qos_mtx);
 
+#if !defined(CONFIG_BCM_KF_ANDROID) || !defined(CONFIG_BCM_ANDROID)
 	/* Silently return if the constraints object is not present. */
 	if (dev->power.constraints)
 		retval = blocking_notifier_chain_register(
 				dev->power.constraints->notifiers,
 				notifier);
+#else
+	if (!dev->power.constraints)
+		ret = dev->power.power_state.event != PM_EVENT_INVALID ?
+			dev_pm_qos_constraints_allocate(dev) : -ENODEV;
+
+	if (!ret)
+		ret = blocking_notifier_chain_register(
+				dev->power.constraints->notifiers, notifier);
+#endif
 
 	mutex_unlock(&dev_pm_qos_mtx);
+#if !defined(CONFIG_BCM_KF_ANDROID) || !defined(CONFIG_BCM_ANDROID)
 	return retval;
+#else
+	return ret;
+#endif
 }
 EXPORT_SYMBOL_GPL(dev_pm_qos_add_notifier);
 
@@ -446,7 +464,11 @@ int dev_pm_qos_add_ancestor_request(struct device *dev,
 	if (ancestor)
 		error = dev_pm_qos_add_request(ancestor, req, value);
 
+#if !defined(CONFIG_BCM_KF_ANDROID) || !defined(CONFIG_BCM_ANDROID)
 	if (error)
+#else
+	if (error < 0)
+#endif
 		req->dev = NULL;
 
 	return error;

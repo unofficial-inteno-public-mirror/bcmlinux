@@ -38,9 +38,17 @@ enum {
 	UNIX_DIAG_RQLEN,
 	UNIX_DIAG_MEMINFO,
 
+#if !defined(CONFIG_BCM_KF_ANDROID) || !defined(CONFIG_BCM_ANDROID)
 	UNIX_DIAG_MAX,
+#else
+	__UNIX_DIAG_MAX,
+#endif
 };
 
+#if defined(CONFIG_BCM_KF_ANDROID) && defined(CONFIG_BCM_ANDROID)
+#define UNIX_DIAG_MAX (__UNIX_DIAG_MAX - 1)
+
+#endif
 struct unix_diag_vfs {
 	__u32	udiag_vfs_ino;
 	__u32	udiag_vfs_dev;

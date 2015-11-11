@@ -72,9 +72,13 @@ void __noreturn cpu_idle(void)
 			}
 		}
 #ifdef CONFIG_HOTPLUG_CPU
+#if !defined(CONFIG_BCM_KF_ANDROID) || !defined(CONFIG_BCM_ANDROID)
 		if (!cpu_online(cpu) && !cpu_isset(cpu, cpu_callin_map) &&
 		    (system_state == SYSTEM_RUNNING ||
 		     system_state == SYSTEM_BOOTING))
+#else
+		if (!cpu_online(cpu) && !cpu_isset(cpu, cpu_callin_map))
+#endif
 			play_dead();
 #endif
 		rcu_idle_exit();

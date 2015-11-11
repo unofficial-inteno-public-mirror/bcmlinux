@@ -9,6 +9,11 @@ unsigned long gcd(unsigned long a, unsigned long b)
 
 	if (a < b)
 		swap(a, b);
+#if defined(CONFIG_BCM_KF_ANDROID) && defined(CONFIG_BCM_ANDROID)
+
+	if (!b)
+		return a;
+#endif
 	while ((r = a % b) != 0) {
 		a = b;
 		b = r;

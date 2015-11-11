@@ -1808,7 +1808,12 @@ static void virtcons_remove(struct virtio_device *vdev)
 	/* Disable interrupts for vqs */
 	vdev->config->reset(vdev);
 	/* Finish up work that's lined up */
+#if !defined(CONFIG_BCM_KF_ANDROID) || !defined(CONFIG_BCM_ANDROID)
 	cancel_work_sync(&portdev->control_work);
+#else
+	if (use_multiport(portdev))
+		cancel_work_sync(&portdev->control_work);
+#endif
 
 	list_for_each_entry_safe(port, port2, &portdev->ports, list)
 		unplug_port(port);

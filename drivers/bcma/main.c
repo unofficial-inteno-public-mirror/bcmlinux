@@ -131,9 +131,18 @@ static int bcma_register_cores(struct bcma_bus *bus)
 
 static void bcma_unregister_cores(struct bcma_bus *bus)
 {
+#if !defined(CONFIG_BCM_KF_ANDROID) || !defined(CONFIG_BCM_ANDROID)
 	struct bcma_device *core;
+#else
+	struct bcma_device *core, *tmp;
+#endif
 
+#if !defined(CONFIG_BCM_KF_ANDROID) || !defined(CONFIG_BCM_ANDROID)
 	list_for_each_entry(core, &bus->cores, list) {
+#else
+	list_for_each_entry_safe(core, tmp, &bus->cores, list) {
+		list_del(&core->list);
+#endif
 		if (core->dev_registered)
 			device_unregister(&core->dev);
 	}

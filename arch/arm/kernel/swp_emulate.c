@@ -109,10 +109,16 @@ static void set_segfault(struct pt_regs *regs, unsigned long addr)
 {
 	siginfo_t info;
 
+#if defined(CONFIG_BCM_KF_ANDROID) && defined(CONFIG_BCM_ANDROID)
+	down_read(&current->mm->mmap_sem);
+#endif
 	if (find_vma(current->mm, addr) == NULL)
 		info.si_code = SEGV_MAPERR;
 	else
 		info.si_code = SEGV_ACCERR;
+#if defined(CONFIG_BCM_KF_ANDROID) && defined(CONFIG_BCM_ANDROID)
+	up_read(&current->mm->mmap_sem);
+#endif
 
 	info.si_signo = SIGSEGV;
 	info.si_errno = 0;

@@ -277,8 +277,15 @@ extern void nfs_sb_active(struct super_block *sb);
 extern void nfs_sb_deactive(struct super_block *sb);
 
 /* namespace.c */
+#if defined(CONFIG_BCM_KF_ANDROID) && defined(CONFIG_BCM_ANDROID)
+#define NFS_PATH_CANONICAL 1
+#endif
 extern char *nfs_path(char **p, struct dentry *dentry,
+#if !defined(CONFIG_BCM_KF_ANDROID) || !defined(CONFIG_BCM_ANDROID)
 		      char *buffer, ssize_t buflen);
+#else
+		      char *buffer, ssize_t buflen, unsigned flags);
+#endif
 extern struct vfsmount *nfs_d_automount(struct path *path);
 #ifdef CONFIG_NFS_V4
 rpc_authflavor_t nfs_find_best_sec(struct nfs4_secinfo_flavors *);
@@ -371,7 +378,11 @@ static inline char *nfs_devname(struct dentry *dentry,
 				char *buffer, ssize_t buflen)
 {
 	char *dummy;
+#if !defined(CONFIG_BCM_KF_ANDROID) || !defined(CONFIG_BCM_ANDROID)
 	return nfs_path(&dummy, dentry, buffer, buflen);
+#else
+	return nfs_path(&dummy, dentry, buffer, buflen, NFS_PATH_CANONICAL);
+#endif
 }
 
 /*

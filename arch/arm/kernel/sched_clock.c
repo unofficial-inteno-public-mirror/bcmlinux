@@ -21,6 +21,10 @@ struct clock_data {
 	u32 epoch_cyc_copy;
 	u32 mult;
 	u32 shift;
+#if defined(CONFIG_BCM_KF_ANDROID) && defined(CONFIG_BCM_ANDROID)
+	bool suspended;
+	bool needs_suspend;
+#endif
 };
 
 static void sched_clock_poll(unsigned long wrap_ticks);
@@ -49,6 +53,11 @@ static unsigned long long cyc_to_sched_clock(u32 cyc, u32 mask)
 	u64 epoch_ns;
 	u32 epoch_cyc;
 
+#if defined(CONFIG_BCM_KF_ANDROID) && defined(CONFIG_BCM_ANDROID)
+	if (cd.suspended)
+		return cd.epoch_ns;
+
+#endif
 	/*
 	 * Load the epoch_cyc and epoch_ns atomically.  We do this by
 	 * ensuring that we always write epoch_cyc, epoch_ns and
@@ -84,11 +93,19 @@ static void notrace update_sched_clock(void)
 	 * detectable in cyc_to_fixed_sched_clock().
 	 */
 	raw_local_irq_save(flags);
+#if !defined(CONFIG_BCM_KF_ANDROID) || !defined(CONFIG_BCM_ANDROID)
 	cd.epoch_cyc = cyc;
+#else
+	cd.epoch_cyc_copy = cyc;
+#endif
 	smp_wmb();
 	cd.epoch_ns = ns;
 	smp_wmb();
+#if !defined(CONFIG_BCM_KF_ANDROID) || !defined(CONFIG_BCM_ANDROID)
 	cd.epoch_cyc_copy = cyc;
+#else
+	cd.epoch_cyc = cyc;
+#endif
 	raw_local_irq_restore(flags);
 }
 
@@ -98,6 +115,15 @@ static void sched_clock_poll(unsigned long wrap_ticks)
 	update_sched_clock();
 }
 
+#if defined(CONFIG_BCM_KF_ANDROID) && defined(CONFIG_BCM_ANDROID)
+void __init setup_sched_clock_needs_suspend(u32 (*read)(void), int bits,
+		unsigned long rate)
+{
+	setup_sched_clock(read, bits, rate);
+	cd.needs_suspend = true;
+}
+
+#endif
 void __init setup_sched_clock(u32 (*read)(void), int bits, unsigned long rate)
 {
 	unsigned long r, w;
@@ -169,11 +195,29 @@ void __init sched_clock_postinit(void)
 static int sched_clock_suspend(void)
 {
 	sched_clock_poll(sched_clock_timer.data);
+#if defined(CONFIG_BCM_KF_ANDROID) && defined(CONFIG_BCM_ANDROID)
+	if (cd.needs_suspend)
+		cd.suspended = true;
+#endif
 	return 0;
 }
 
+#if defined(CONFIG_BCM_KF_ANDROID) && defined(CONFIG_BCM_ANDROID)
+static void sched_clock_resume(void)
+{
+	if (cd.needs_suspend) {
+		cd.epoch_cyc = read_sched_clock();
+		cd.epoch_cyc_copy = cd.epoch_cyc;
+		cd.suspended = false;
+	}
+}
+
+#endif
 static struct syscore_ops sched_clock_ops = {
 	.suspend = sched_clock_suspend,
+#if defined(CONFIG_BCM_KF_ANDROID) && defined(CONFIG_BCM_ANDROID)
+	.resume = sched_clock_resume,
+#endif
 };
 
 static int __init sched_clock_syscore_init(void)

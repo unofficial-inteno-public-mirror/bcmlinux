@@ -71,7 +71,11 @@
 #define DEV_NAME_LEN		32
 #define MAX_INT_FORMAT_WIDTH	((5 * sizeof (int)) / 2 + 1)
 
+#if !defined(CONFIG_BCM_KF_ANDROID) || !defined(CONFIG_BCM_ANDROID)
 #define RBD_NOTIFY_TIMEOUT_DEFAULT 10
+#else
+#define RBD_READ_ONLY_DEFAULT		false
+#endif
 
 /*
  * block device image metadata (in-memory version)
@@ -94,7 +98,11 @@ struct rbd_image_header {
 };
 
 struct rbd_options {
+#if !defined(CONFIG_BCM_KF_ANDROID) || !defined(CONFIG_BCM_ANDROID)
 	int	notify_timeout;
+#else
+	bool	read_only;
+#endif
 };
 
 /*
@@ -174,10 +182,21 @@ struct rbd_device {
 
 	/* protects updating the header */
 	struct rw_semaphore     header_rwsem;
+#if defined(CONFIG_BCM_KF_ANDROID) && defined(CONFIG_BCM_ANDROID)
+	/* name of the snapshot this device reads from */
+#endif
 	char                    snap_name[RBD_MAX_SNAP_NAME_LEN];
+#if !defined(CONFIG_BCM_KF_ANDROID) || !defined(CONFIG_BCM_ANDROID)
 	u32 cur_snap;	/* index+1 of current snapshot within snap context
 			   0 - for the head */
 	int read_only;
+#else
+	/* id of the snapshot this device reads from */
+	u64                     snap_id;	/* current snapshot id */
+	/* whether the snap_id this device reads from still exists */
+	bool                    snap_exists;
+	bool			read_only;
+#endif
 
 	struct list_head	node;
 
@@ -186,6 +205,9 @@ struct rbd_device {
 
 	/* sysfs related */
 	struct device		dev;
+#if defined(CONFIG_BCM_KF_ANDROID) && defined(CONFIG_BCM_ANDROID)
+	unsigned long		open_count;
+#endif
 };
 
 static DEFINE_MUTEX(ctl_mutex);	  /* Serialize open/close/setup/teardown */
@@ -198,10 +220,12 @@ static DEFINE_SPINLOCK(rbd_client_list_lock);
 
 static int __rbd_init_snaps_header(struct rbd_device *rbd_dev);
 static void rbd_dev_release(struct device *dev);
+#if !defined(CONFIG_BCM_KF_ANDROID) || !defined(CONFIG_BCM_ANDROID)
 static ssize_t rbd_snap_add(struct device *dev,
 			    struct device_attribute *attr,
 			    const char *buf,
 			    size_t count);
+#endif
 static void __rbd_remove_snap_dev(struct rbd_device *rbd_dev,
 				  struct rbd_snap *snap);
 
@@ -247,13 +271,23 @@ static int rbd_open(struct block_device *bdev, fmode_t mode)
 {
 	struct rbd_device *rbd_dev = bdev->bd_disk->private_data;
 
+#if !defined(CONFIG_BCM_KF_ANDROID) || !defined(CONFIG_BCM_ANDROID)
 	rbd_get_dev(rbd_dev);
 
 	set_device_ro(bdev, rbd_dev->read_only);
 
+#endif
 	if ((mode & FMODE_WRITE) && rbd_dev->read_only)
 		return -EROFS;
 
+#if defined(CONFIG_BCM_KF_ANDROID) && defined(CONFIG_BCM_ANDROID)
+	mutex_lock_nested(&ctl_mutex, SINGLE_DEPTH_NESTING);
+	rbd_get_dev(rbd_dev);
+	set_device_ro(bdev, rbd_dev->read_only);
+	rbd_dev->open_count++;
+	mutex_unlock(&ctl_mutex);
+
+#endif
 	return 0;
 }
 
@@ -261,7 +295,15 @@ static int rbd_release(struct gendisk *disk, fmode_t mode)
 {
 	struct rbd_device *rbd_dev = disk->private_data;
 
+#if defined(CONFIG_BCM_KF_ANDROID) && defined(CONFIG_BCM_ANDROID)
+	mutex_lock_nested(&ctl_mutex, SINGLE_DEPTH_NESTING);
+	BUG_ON(!rbd_dev->open_count);
+	rbd_dev->open_count--;
+#endif
 	rbd_put_dev(rbd_dev);
+#if defined(CONFIG_BCM_KF_ANDROID) && defined(CONFIG_BCM_ANDROID)
+	mutex_unlock(&ctl_mutex);
+#endif
 
 	return 0;
 }
@@ -343,17 +385,34 @@ static struct rbd_client *__rbd_client_find(struct ceph_options *opt)
  * mount options
  */
 enum {
+#if !defined(CONFIG_BCM_KF_ANDROID) || !defined(CONFIG_BCM_ANDROID)
 	Opt_notify_timeout,
+#endif
 	Opt_last_int,
 	/* int args above */
 	Opt_last_string,
 	/* string args above */
+#if defined(CONFIG_BCM_KF_ANDROID) && defined(CONFIG_BCM_ANDROID)
+	Opt_read_only,
+	Opt_read_write,
+	/* Boolean args above */
+	Opt_last_bool,
+#endif
 };
 
 static match_table_t rbdopt_tokens = {
+#if !defined(CONFIG_BCM_KF_ANDROID) || !defined(CONFIG_BCM_ANDROID)
 	{Opt_notify_timeout, "notify_timeout=%d"},
+#endif
 	/* int args above */
 	/* string args above */
+#if defined(CONFIG_BCM_KF_ANDROID) && defined(CONFIG_BCM_ANDROID)
+	{Opt_read_only, "read_only"},
+	{Opt_read_only, "ro"},		/* Alternate spelling */
+	{Opt_read_write, "read_write"},
+	{Opt_read_write, "rw"},		/* Alternate spelling */
+	/* Boolean args above */
+#endif
 	{-1, NULL}
 };
 
@@ -378,13 +437,25 @@ static int parse_rbd_opts_token(char *c, void *private)
 	} else if (token > Opt_last_int && token < Opt_last_string) {
 		dout("got string token %d val %s\n", token,
 		     argstr[0].from);
+#if defined(CONFIG_BCM_KF_ANDROID) && defined(CONFIG_BCM_ANDROID)
+	} else if (token > Opt_last_string && token < Opt_last_bool) {
+		dout("got Boolean token %d\n", token);
+#endif
 	} else {
 		dout("got token %d\n", token);
 	}
 
 	switch (token) {
+#if !defined(CONFIG_BCM_KF_ANDROID) || !defined(CONFIG_BCM_ANDROID)
 	case Opt_notify_timeout:
 		rbdopt->notify_timeout = intval;
+#else
+	case Opt_read_only:
+		rbdopt->read_only = true;
+		break;
+	case Opt_read_write:
+		rbdopt->read_only = false;
+#endif
 		break;
 	default:
 		BUG_ON(token);
@@ -408,7 +479,11 @@ static struct rbd_client *rbd_get_client(const char *mon_addr,
 	if (!rbd_opts)
 		return ERR_PTR(-ENOMEM);
 
+#if !defined(CONFIG_BCM_KF_ANDROID) || !defined(CONFIG_BCM_ANDROID)
 	rbd_opts->notify_timeout = RBD_NOTIFY_TIMEOUT_DEFAULT;
+#else
+	rbd_opts->read_only = RBD_READ_ONLY_DEFAULT;
+#endif
 
 	opt = ceph_parse_options(options, mon_addr,
 				mon_addr + mon_addr_len,
@@ -450,7 +525,13 @@ static void rbd_client_release(struct kref *kref)
 	struct rbd_client *rbdc = container_of(kref, struct rbd_client, kref);
 
 	dout("rbd_release_client %p\n", rbdc);
+#if defined(CONFIG_BCM_KF_ANDROID) && defined(CONFIG_BCM_ANDROID)
+	spin_lock(&rbd_client_list_lock);
+#endif
 	list_del(&rbdc->node);
+#if defined(CONFIG_BCM_KF_ANDROID) && defined(CONFIG_BCM_ANDROID)
+	spin_unlock(&rbd_client_list_lock);
+#endif
 
 	ceph_destroy_client(rbdc->client);
 	kfree(rbdc->rbd_opts);
@@ -463,9 +544,13 @@ static void rbd_client_release(struct kref *kref)
  */
 static void rbd_put_client(struct rbd_device *rbd_dev)
 {
+#if !defined(CONFIG_BCM_KF_ANDROID) || !defined(CONFIG_BCM_ANDROID)
 	spin_lock(&rbd_client_list_lock);
+#endif
 	kref_put(&rbd_dev->rbd_client->kref, rbd_client_release);
+#if !defined(CONFIG_BCM_KF_ANDROID) || !defined(CONFIG_BCM_ANDROID)
 	spin_unlock(&rbd_client_list_lock);
+#endif
 	rbd_dev->rbd_client = NULL;
 }
 
@@ -498,7 +583,11 @@ static int rbd_header_from_disk(struct rbd_image_header *header,
 
 	snap_count = le32_to_cpu(ondisk->snap_count);
 	header->snapc = kmalloc(sizeof(struct ceph_snap_context) +
+#if !defined(CONFIG_BCM_KF_ANDROID) || !defined(CONFIG_BCM_ANDROID)
 				snap_count * sizeof (*ondisk),
+#else
+				snap_count * sizeof(u64),
+#endif
 				gfp_flags);
 	if (!header->snapc)
 		return -ENOMEM;
@@ -552,6 +641,7 @@ err_snapc:
 	return -ENOMEM;
 }
 
+#if !defined(CONFIG_BCM_KF_ANDROID) || !defined(CONFIG_BCM_ANDROID)
 static int snap_index(struct rbd_image_header *header, int snap_num)
 {
 	return header->total_snaps - snap_num;
@@ -567,6 +657,7 @@ static u64 cur_snap_id(struct rbd_device *rbd_dev)
 	return header->snapc->snaps[snap_index(header, rbd_dev->cur_snap)];
 }
 
+#endif
 static int snap_by_name(struct rbd_image_header *header, const char *snap_name,
 			u64 *seq, u64 *size)
 {
@@ -605,17 +696,29 @@ static int rbd_header_set_snap(struct rbd_device *dev, u64 *size)
 			snapc->seq = header->snap_seq;
 		else
 			snapc->seq = 0;
+#if !defined(CONFIG_BCM_KF_ANDROID) || !defined(CONFIG_BCM_ANDROID)
 		dev->cur_snap = 0;
 		dev->read_only = 0;
+#else
+		dev->snap_id = CEPH_NOSNAP;
+		dev->snap_exists = false;
+		dev->read_only = dev->rbd_client->rbd_opts->read_only;
+#endif
 		if (size)
 			*size = header->image_size;
 	} else {
 		ret = snap_by_name(header, dev->snap_name, &snapc->seq, size);
 		if (ret < 0)
 			goto done;
+#if !defined(CONFIG_BCM_KF_ANDROID) || !defined(CONFIG_BCM_ANDROID)
 
 		dev->cur_snap = header->total_snaps - ret;
 		dev->read_only = 1;
+#else
+		dev->snap_id = snapc->seq;
+		dev->snap_exists = true;
+		dev->read_only = true;	/* No choice for snapshots */
+#endif
 	}
 
 	ret = 0;
@@ -626,7 +729,11 @@ done:
 
 static void rbd_header_free(struct rbd_image_header *header)
 {
+#if !defined(CONFIG_BCM_KF_ANDROID) || !defined(CONFIG_BCM_ANDROID)
 	kfree(header->snapc);
+#else
+	ceph_put_snap_context(header->snapc);
+#endif
 	kfree(header->snap_names);
 	kfree(header->snap_sizes);
 }
@@ -904,13 +1011,17 @@ static int rbd_do_request(struct request *rq,
 
 	dout("rbd_do_request obj=%s ofs=%lld len=%lld\n", obj, len, ofs);
 
+#if !defined(CONFIG_BCM_KF_ANDROID) || !defined(CONFIG_BCM_ANDROID)
 	down_read(&dev->header_rwsem);
 
+#endif
 	osdc = &dev->rbd_client->client->osdc;
 	req = ceph_osdc_alloc_request(osdc, flags, snapc, ops,
 					false, GFP_NOIO, pages, bio);
 	if (!req) {
+#if !defined(CONFIG_BCM_KF_ANDROID) || !defined(CONFIG_BCM_ANDROID)
 		up_read(&dev->header_rwsem);
+#endif
 		ret = -ENOMEM;
 		goto done_pages;
 	}
@@ -937,15 +1048,23 @@ static int rbd_do_request(struct request *rq,
 	layout->fl_object_size = cpu_to_le32(1 << RBD_MAX_OBJ_ORDER);
 	layout->fl_pg_preferred = cpu_to_le32(-1);
 	layout->fl_pg_pool = cpu_to_le32(dev->poolid);
+#if !defined(CONFIG_BCM_KF_ANDROID) || !defined(CONFIG_BCM_ANDROID)
 	ceph_calc_raw_layout(osdc, layout, snapid, ofs, &len, &bno,
 				req, ops);
+#else
+	ret = ceph_calc_raw_layout(osdc, layout, snapid, ofs, &len, &bno,
+				   req, ops);
+	BUG_ON(ret != 0);
+#endif
 
 	ceph_osdc_build_request(req, ofs, &len,
 				ops,
 				snapc,
 				&mtime,
 				req->r_oid, req->r_oid_len);
+#if !defined(CONFIG_BCM_KF_ANDROID) || !defined(CONFIG_BCM_ANDROID)
 	up_read(&dev->header_rwsem);
+#endif
 
 	if (linger_req) {
 		ceph_osdc_set_request_linger(osdc, req);
@@ -1210,7 +1329,11 @@ static int rbd_req_sync_notify_ack(struct rbd_device *dev,
 	if (ret < 0)
 		return ret;
 
+#if !defined(CONFIG_BCM_KF_ANDROID) || !defined(CONFIG_BCM_ANDROID)
 	ops[0].watch.ver = cpu_to_le64(dev->header.obj_version);
+#else
+	ops[0].watch.ver = cpu_to_le64(ver);
+#endif
 	ops[0].watch.cookie = notify_id;
 	ops[0].watch.flag = 0;
 
@@ -1230,6 +1353,9 @@ static int rbd_req_sync_notify_ack(struct rbd_device *dev,
 static void rbd_watch_cb(u64 ver, u64 notify_id, u8 opcode, void *data)
 {
 	struct rbd_device *dev = (struct rbd_device *)data;
+#if defined(CONFIG_BCM_KF_ANDROID) && defined(CONFIG_BCM_ANDROID)
+	u64 hver;
+#endif
 	int rc;
 
 	if (!dev)
@@ -1239,12 +1365,19 @@ static void rbd_watch_cb(u64 ver, u64 notify_id, u8 opcode, void *data)
 		notify_id, (int)opcode);
 	mutex_lock_nested(&ctl_mutex, SINGLE_DEPTH_NESTING);
 	rc = __rbd_update_snaps(dev);
+#if defined(CONFIG_BCM_KF_ANDROID) && defined(CONFIG_BCM_ANDROID)
+	hver = dev->header.obj_version;
+#endif
 	mutex_unlock(&ctl_mutex);
 	if (rc)
 		pr_warning(RBD_DRV_NAME "%d got notification but failed to "
 			   " update snaps: %d\n", dev->major, rc);
 
+#if !defined(CONFIG_BCM_KF_ANDROID) || !defined(CONFIG_BCM_ANDROID)
 	rbd_req_sync_notify_ack(dev, ver, notify_id, dev->obj_md_name);
+#else
+	rbd_req_sync_notify_ack(dev, hver, notify_id, dev->obj_md_name);
+#endif
 }
 
 /*
@@ -1321,6 +1454,7 @@ static int rbd_req_sync_unwatch(struct rbd_device *dev,
 	return ret;
 }
 
+#if !defined(CONFIG_BCM_KF_ANDROID) || !defined(CONFIG_BCM_ANDROID)
 struct rbd_notify_info {
 	struct rbd_device *dev;
 };
@@ -1425,6 +1559,7 @@ static int rbd_req_sync_exec(struct rbd_device *dev,
 	dout("cls_exec returned %d\n", ret);
 	return ret;
 }
+#endif
 
 static struct rbd_req_coll *rbd_alloc_coll(int num_reqs)
 {
@@ -1457,6 +1592,9 @@ static void rbd_rq_fn(struct request_queue *q)
 		u64 ofs;
 		int num_segs, cur_seg = 0;
 		struct rbd_req_coll *coll;
+#if defined(CONFIG_BCM_KF_ANDROID) && defined(CONFIG_BCM_ANDROID)
+		struct ceph_snap_context *snapc;
+#endif
 
 		/* peek at request from block layer */
 		if (!rq)
@@ -1483,6 +1621,22 @@ static void rbd_rq_fn(struct request_queue *q)
 
 		spin_unlock_irq(q->queue_lock);
 
+#if defined(CONFIG_BCM_KF_ANDROID) && defined(CONFIG_BCM_ANDROID)
+		down_read(&rbd_dev->header_rwsem);
+
+		if (rbd_dev->snap_id != CEPH_NOSNAP && !rbd_dev->snap_exists) {
+			up_read(&rbd_dev->header_rwsem);
+			dout("request for non-existent snapshot");
+			spin_lock_irq(q->queue_lock);
+			__blk_end_request_all(rq, -ENXIO);
+			continue;
+		}
+
+		snapc = ceph_get_snap_context(rbd_dev->header.snapc);
+
+		up_read(&rbd_dev->header_rwsem);
+
+#endif
 		dout("%s 0x%x bytes at 0x%llx\n",
 		     do_write ? "write" : "read",
 		     size, blk_rq_pos(rq) * SECTOR_SIZE);
@@ -1492,6 +1646,9 @@ static void rbd_rq_fn(struct request_queue *q)
 		if (!coll) {
 			spin_lock_irq(q->queue_lock);
 			__blk_end_request_all(rq, -ENOMEM);
+#if defined(CONFIG_BCM_KF_ANDROID) && defined(CONFIG_BCM_ANDROID)
+			ceph_put_snap_context(snapc);
+#endif
 			continue;
 		}
 
@@ -1515,13 +1672,21 @@ static void rbd_rq_fn(struct request_queue *q)
 			/* init OSD command: write or read */
 			if (do_write)
 				rbd_req_write(rq, rbd_dev,
+#if !defined(CONFIG_BCM_KF_ANDROID) || !defined(CONFIG_BCM_ANDROID)
 					      rbd_dev->header.snapc,
+#else
+					      snapc,
+#endif
 					      ofs,
 					      op_size, bio,
 					      coll, cur_seg);
 			else
 				rbd_req_read(rq, rbd_dev,
+#if !defined(CONFIG_BCM_KF_ANDROID) || !defined(CONFIG_BCM_ANDROID)
 					     cur_snap_id(rbd_dev),
+#else
+					     rbd_dev->snap_id,
+#endif
 					     ofs,
 					     op_size, bio,
 					     coll, cur_seg);
@@ -1538,6 +1703,10 @@ next_seg:
 		if (bp)
 			bio_pair_release(bp);
 		spin_lock_irq(q->queue_lock);
+#if defined(CONFIG_BCM_KF_ANDROID) && defined(CONFIG_BCM_ANDROID)
+
+		ceph_put_snap_context(snapc);
+#endif
 	}
 }
 
@@ -1641,6 +1810,7 @@ out_dh:
 	return rc;
 }
 
+#if !defined(CONFIG_BCM_KF_ANDROID) || !defined(CONFIG_BCM_ANDROID)
 /*
  * create a snapshot
  */
@@ -1690,6 +1860,7 @@ bad:
 	return -ERANGE;
 }
 
+#endif
 static void __rbd_remove_all_snaps(struct rbd_device *rbd_dev)
 {
 	struct rbd_snap *snap;
@@ -1714,10 +1885,25 @@ static int __rbd_update_snaps(struct rbd_device *rbd_dev)
 	if (ret < 0)
 		return ret;
 
-	/* resized? */
-	set_capacity(rbd_dev->disk, h.image_size / SECTOR_SIZE);
-
+#if defined(CONFIG_BCM_KF_ANDROID) && defined(CONFIG_BCM_ANDROID)
 	down_write(&rbd_dev->header_rwsem);
+
+#endif
+	/* resized? */
+#if !defined(CONFIG_BCM_KF_ANDROID) || !defined(CONFIG_BCM_ANDROID)
+	set_capacity(rbd_dev->disk, h.image_size / SECTOR_SIZE);
+#else
+	if (rbd_dev->snap_id == CEPH_NOSNAP) {
+		sector_t size = (sector_t) h.image_size / SECTOR_SIZE;
+#endif
+
+#if !defined(CONFIG_BCM_KF_ANDROID) || !defined(CONFIG_BCM_ANDROID)
+	down_write(&rbd_dev->header_rwsem);
+#else
+		dout("setting size to %llu sectors", (unsigned long long) size);
+		set_capacity(rbd_dev->disk, size);
+	}
+#endif
 
 	snap_seq = rbd_dev->header.snapc->seq;
 	if (rbd_dev->header.total_snaps &&
@@ -1726,10 +1912,18 @@ static int __rbd_update_snaps(struct rbd_device *rbd_dev)
 		   if head moves */
 		follow_seq = 1;
 
+#if !defined(CONFIG_BCM_KF_ANDROID) || !defined(CONFIG_BCM_ANDROID)
 	kfree(rbd_dev->header.snapc);
+#else
+	ceph_put_snap_context(rbd_dev->header.snapc);
+#endif
 	kfree(rbd_dev->header.snap_names);
 	kfree(rbd_dev->header.snap_sizes);
 
+#if defined(CONFIG_BCM_KF_ANDROID) && defined(CONFIG_BCM_ANDROID)
+	rbd_dev->header.obj_version = h.obj_version;
+	rbd_dev->header.image_size = h.image_size;
+#endif
 	rbd_dev->header.total_snaps = h.total_snaps;
 	rbd_dev->header.snapc = h.snapc;
 	rbd_dev->header.snap_names = h.snap_names;
@@ -1833,8 +2027,19 @@ static ssize_t rbd_size_show(struct device *dev,
 			     struct device_attribute *attr, char *buf)
 {
 	struct rbd_device *rbd_dev = dev_to_rbd_dev(dev);
+#if defined(CONFIG_BCM_KF_ANDROID) && defined(CONFIG_BCM_ANDROID)
+	sector_t size;
 
+	down_read(&rbd_dev->header_rwsem);
+	size = get_capacity(rbd_dev->disk);
+	up_read(&rbd_dev->header_rwsem);
+#endif
+
+#if !defined(CONFIG_BCM_KF_ANDROID) || !defined(CONFIG_BCM_ANDROID)
 	return sprintf(buf, "%llu\n", (unsigned long long)rbd_dev->header.image_size);
+#else
+	return sprintf(buf, "%llu\n", (unsigned long long) size * SECTOR_SIZE);
+#endif
 }
 
 static ssize_t rbd_major_show(struct device *dev,
@@ -1905,7 +2110,9 @@ static DEVICE_ATTR(pool, S_IRUGO, rbd_pool_show, NULL);
 static DEVICE_ATTR(name, S_IRUGO, rbd_name_show, NULL);
 static DEVICE_ATTR(refresh, S_IWUSR, NULL, rbd_image_refresh);
 static DEVICE_ATTR(current_snap, S_IRUGO, rbd_snap_show, NULL);
+#if !defined(CONFIG_BCM_KF_ANDROID) || !defined(CONFIG_BCM_ANDROID)
 static DEVICE_ATTR(create_snap, S_IWUSR, NULL, rbd_snap_add);
+#endif
 
 static struct attribute *rbd_attrs[] = {
 	&dev_attr_size.attr,
@@ -1915,7 +2122,9 @@ static struct attribute *rbd_attrs[] = {
 	&dev_attr_name.attr,
 	&dev_attr_current_snap.attr,
 	&dev_attr_refresh.attr,
+#if !defined(CONFIG_BCM_KF_ANDROID) || !defined(CONFIG_BCM_ANDROID)
 	&dev_attr_create_snap.attr,
+#endif
 	NULL
 };
 
@@ -2084,7 +2293,18 @@ static int __rbd_init_snaps_header(struct rbd_device *rbd_dev)
 			cur_id = rbd_dev->header.snapc->snaps[i - 1];
 
 		if (!i || old_snap->id < cur_id) {
+#if !defined(CONFIG_BCM_KF_ANDROID) || !defined(CONFIG_BCM_ANDROID)
 			/* old_snap->id was skipped, thus was removed */
+#else
+			/*
+			 * old_snap->id was skipped, thus was
+			 * removed.  If this rbd_dev is mapped to
+			 * the removed snapshot, record that it no
+			 * longer exists, to prevent further I/O.
+			 */
+			if (rbd_dev->snap_id == old_snap->id)
+				rbd_dev->snap_exists = false;
+#endif
 			__rbd_remove_snap_dev(rbd_dev, old_snap);
 			continue;
 		}
@@ -2232,8 +2452,13 @@ static void rbd_id_put(struct rbd_device *rbd_dev)
 		struct rbd_device *rbd_dev;
 
 		rbd_dev = list_entry(tmp, struct rbd_device, node);
+#if !defined(CONFIG_BCM_KF_ANDROID) || !defined(CONFIG_BCM_ANDROID)
 		if (rbd_id > max_id)
 			max_id = rbd_id;
+#else
+		if (rbd_dev->id > max_id)
+			max_id = rbd_dev->id;
+#endif
 	}
 	spin_unlock(&rbd_dev_list_lock);
 
@@ -2530,6 +2755,13 @@ static ssize_t rbd_remove(struct bus_type *bus,
 		goto done;
 	}
 
+#if defined(CONFIG_BCM_KF_ANDROID) && defined(CONFIG_BCM_ANDROID)
+	if (rbd_dev->open_count) {
+		ret = -EBUSY;
+		goto done;
+	}
+
+#endif
 	__rbd_remove_all_snaps(rbd_dev);
 	rbd_bus_del_dev(rbd_dev);
 
@@ -2538,6 +2770,7 @@ done:
 	return ret;
 }
 
+#if !defined(CONFIG_BCM_KF_ANDROID) || !defined(CONFIG_BCM_ANDROID)
 static ssize_t rbd_snap_add(struct device *dev,
 			    struct device_attribute *attr,
 			    const char *buf,
@@ -2579,6 +2812,7 @@ err_unlock:
 	return ret;
 }
 
+#endif
 /*
  * create control files in sysfs
  * /sys/bus/rbd/...

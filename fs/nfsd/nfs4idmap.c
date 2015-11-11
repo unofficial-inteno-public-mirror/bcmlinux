@@ -581,7 +581,11 @@ numeric_name_to_id(struct svc_rqst *rqstp, int type, const char *name, u32 namel
 	/* Just to make sure it's null-terminated: */
 	memcpy(buf, name, namelen);
 	buf[namelen] = '\0';
+#if !defined(CONFIG_BCM_KF_ANDROID) || !defined(CONFIG_BCM_ANDROID)
 	ret = kstrtouint(name, 10, id);
+#else
+	ret = kstrtouint(buf, 10, id);
+#endif
 	return ret == 0;
 }
 

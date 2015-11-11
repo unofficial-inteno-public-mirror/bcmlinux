@@ -5,7 +5,11 @@
 #include <linux/threads.h>
 #include <asm/irq.h>
 
+#if !defined(CONFIG_BCM_KF_ANDROID) || !defined(CONFIG_BCM_ANDROID)
 #define NR_IPI	5
+#else
+#define NR_IPI	6
+#endif
 
 typedef struct {
 	unsigned int __softirq_pending;

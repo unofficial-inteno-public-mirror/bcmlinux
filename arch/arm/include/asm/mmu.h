@@ -44,6 +44,7 @@ typedef struct {
 
 #endif
 
+#if !defined(CONFIG_BCM_KF_ANDROID) || !defined(CONFIG_BCM_ANDROID)
 /*
  * switch_mm() may do a full cache flush over the context switch,
  * so enable interrupts over the context switch to avoid high
@@ -51,4 +52,5 @@ typedef struct {
  */
 #define __ARCH_WANT_INTERRUPTS_ON_CTXSW
 
+#endif
 #endif

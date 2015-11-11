@@ -19,7 +19,11 @@
 #include <linux/compiler.h>
 #include <linux/mutex.h>
 
+#if !defined(CONFIG_BCM_KF_ANDROID) || !defined(CONFIG_BCM_ANDROID)
 #define MIN_MEMORY_BLOCK_SIZE     (1 << SECTION_SIZE_BITS)
+#else
+#define MIN_MEMORY_BLOCK_SIZE     (1UL << SECTION_SIZE_BITS)
+#endif
 
 struct memory_block {
 	unsigned long start_section_nr;

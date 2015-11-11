@@ -116,6 +116,9 @@ struct snd_usb_midi {
 	struct list_head list;
 	struct timer_list error_timer;
 	spinlock_t disc_lock;
+#if defined(CONFIG_BCM_KF_ANDROID) && defined(CONFIG_BCM_ANDROID)
+	struct rw_semaphore disc_rwsem;
+#endif
 	struct mutex mutex;
 	u32 usb_id;
 	int next_midi_device;
@@ -125,8 +128,16 @@ struct snd_usb_midi {
 		struct snd_usb_midi_in_endpoint *in;
 	} endpoints[MIDI_MAX_ENDPOINTS];
 	unsigned long input_triggered;
+#if !defined(CONFIG_BCM_KF_ANDROID) || !defined(CONFIG_BCM_ANDROID)
 	unsigned int opened;
+#else
+	bool autopm_reference;
+	unsigned int opened[2];
+#endif
 	unsigned char disconnected;
+#if defined(CONFIG_BCM_KF_ANDROID) && defined(CONFIG_BCM_ANDROID)
+	unsigned char input_running;
+#endif
 
 	struct snd_kcontrol *roland_load_ctl;
 };
@@ -1032,29 +1043,88 @@ static void update_roland_altsetting(struct snd_usb_midi* umidi)
 	snd_usbmidi_input_start(&umidi->list);
 }
 
+#if !defined(CONFIG_BCM_KF_ANDROID) || !defined(CONFIG_BCM_ANDROID)
 static void substream_open(struct snd_rawmidi_substream *substream, int open)
+#else
+static int substream_open(struct snd_rawmidi_substream *substream, int dir,
+			  int open)
+#endif
 {
 	struct snd_usb_midi* umidi = substream->rmidi->private_data;
 	struct snd_kcontrol *ctl;
+#if defined(CONFIG_BCM_KF_ANDROID) && defined(CONFIG_BCM_ANDROID)
+	int err;
+
+	down_read(&umidi->disc_rwsem);
+	if (umidi->disconnected) {
+		up_read(&umidi->disc_rwsem);
+		return open ? -ENODEV : 0;
+	}
+#endif
 
 	mutex_lock(&umidi->mutex);
 	if (open) {
+#if !defined(CONFIG_BCM_KF_ANDROID) || !defined(CONFIG_BCM_ANDROID)
 		if (umidi->opened++ == 0 && umidi->roland_load_ctl) {
 			ctl = umidi->roland_load_ctl;
 			ctl->vd[0].access |= SNDRV_CTL_ELEM_ACCESS_INACTIVE;
 			snd_ctl_notify(umidi->card,
+#else
+		if (!umidi->opened[0] && !umidi->opened[1]) {
+			err = usb_autopm_get_interface(umidi->iface);
+			umidi->autopm_reference = err >= 0;
+			if (err < 0 && err != -EACCES) {
+				mutex_unlock(&umidi->mutex);
+				up_read(&umidi->disc_rwsem);
+				return -EIO;
+			}
+			if (umidi->roland_load_ctl) {
+				ctl = umidi->roland_load_ctl;
+				ctl->vd[0].access |= SNDRV_CTL_ELEM_ACCESS_INACTIVE;
+				snd_ctl_notify(umidi->card,
+#endif
 				       SNDRV_CTL_EVENT_MASK_INFO, &ctl->id);
+#if !defined(CONFIG_BCM_KF_ANDROID) || !defined(CONFIG_BCM_ANDROID)
 			update_roland_altsetting(umidi);
+#else
+				update_roland_altsetting(umidi);
+			}
+#endif
 		}
+#if defined(CONFIG_BCM_KF_ANDROID) && defined(CONFIG_BCM_ANDROID)
+		umidi->opened[dir]++;
+		if (umidi->opened[1])
+			snd_usbmidi_input_start(&umidi->list);
+#endif
 	} else {
+#if !defined(CONFIG_BCM_KF_ANDROID) || !defined(CONFIG_BCM_ANDROID)
 		if (--umidi->opened == 0 && umidi->roland_load_ctl) {
 			ctl = umidi->roland_load_ctl;
 			ctl->vd[0].access &= ~SNDRV_CTL_ELEM_ACCESS_INACTIVE;
 			snd_ctl_notify(umidi->card,
+#else
+		umidi->opened[dir]--;
+		if (!umidi->opened[1])
+			snd_usbmidi_input_stop(&umidi->list);
+		if (!umidi->opened[0] && !umidi->opened[1]) {
+			if (umidi->roland_load_ctl) {
+				ctl = umidi->roland_load_ctl;
+				ctl->vd[0].access &= ~SNDRV_CTL_ELEM_ACCESS_INACTIVE;
+				snd_ctl_notify(umidi->card,
+#endif
 				       SNDRV_CTL_EVENT_MASK_INFO, &ctl->id);
+#if defined(CONFIG_BCM_KF_ANDROID) && defined(CONFIG_BCM_ANDROID)
+			}
+			if (umidi->autopm_reference)
+				usb_autopm_put_interface(umidi->iface);
+#endif
 		}
 	}
 	mutex_unlock(&umidi->mutex);
+#if defined(CONFIG_BCM_KF_ANDROID) && defined(CONFIG_BCM_ANDROID)
+	up_read(&umidi->disc_rwsem);
+	return 0;
+#endif
 }
 
 static int snd_usbmidi_output_open(struct snd_rawmidi_substream *substream)
@@ -1062,7 +1132,9 @@ static int snd_usbmidi_output_open(struct snd_rawmidi_substream *substream)
 	struct snd_usb_midi* umidi = substream->rmidi->private_data;
 	struct usbmidi_out_port* port = NULL;
 	int i, j;
+#if !defined(CONFIG_BCM_KF_ANDROID) || !defined(CONFIG_BCM_ANDROID)
 	int err;
+#endif
 
 	for (i = 0; i < MIDI_MAX_ENDPOINTS; ++i)
 		if (umidi->endpoints[i].out)
@@ -1075,22 +1147,34 @@ static int snd_usbmidi_output_open(struct snd_rawmidi_substream *substream)
 		snd_BUG();
 		return -ENXIO;
 	}
+#if !defined(CONFIG_BCM_KF_ANDROID) || !defined(CONFIG_BCM_ANDROID)
 	err = usb_autopm_get_interface(umidi->iface);
 	if (err < 0)
 		return -EIO;
+#else
+
+#endif
 	substream->runtime->private_data = port;
 	port->state = STATE_UNKNOWN;
+#if !defined(CONFIG_BCM_KF_ANDROID) || !defined(CONFIG_BCM_ANDROID)
 	substream_open(substream, 1);
 	return 0;
+#else
+	return substream_open(substream, 0, 1);
+#endif
 }
 
 static int snd_usbmidi_output_close(struct snd_rawmidi_substream *substream)
 {
+#if !defined(CONFIG_BCM_KF_ANDROID) || !defined(CONFIG_BCM_ANDROID)
 	struct snd_usb_midi* umidi = substream->rmidi->private_data;
 
 	substream_open(substream, 0);
 	usb_autopm_put_interface(umidi->iface);
 	return 0;
+#else
+	return substream_open(substream, 0, 0);
+#endif
 }
 
 static void snd_usbmidi_output_trigger(struct snd_rawmidi_substream *substream, int up)
@@ -1143,14 +1227,22 @@ static void snd_usbmidi_output_drain(struct snd_rawmidi_substream *substream)
 
 static int snd_usbmidi_input_open(struct snd_rawmidi_substream *substream)
 {
+#if !defined(CONFIG_BCM_KF_ANDROID) || !defined(CONFIG_BCM_ANDROID)
 	substream_open(substream, 1);
 	return 0;
+#else
+	return substream_open(substream, 1, 1);
+#endif
 }
 
 static int snd_usbmidi_input_close(struct snd_rawmidi_substream *substream)
 {
+#if !defined(CONFIG_BCM_KF_ANDROID) || !defined(CONFIG_BCM_ANDROID)
 	substream_open(substream, 0);
 	return 0;
+#else
+	return substream_open(substream, 1, 0);
+#endif
 }
 
 static void snd_usbmidi_input_trigger(struct snd_rawmidi_substream *substream, int up)
@@ -1399,9 +1491,16 @@ void snd_usbmidi_disconnect(struct list_head* p)
 	 * a timer may submit an URB. To reliably break the cycle
 	 * a flag under lock must be used
 	 */
+#if defined(CONFIG_BCM_KF_ANDROID) && defined(CONFIG_BCM_ANDROID)
+	down_write(&umidi->disc_rwsem);
+#endif
 	spin_lock_irq(&umidi->disc_lock);
 	umidi->disconnected = 1;
 	spin_unlock_irq(&umidi->disc_lock);
+#if defined(CONFIG_BCM_KF_ANDROID) && defined(CONFIG_BCM_ANDROID)
+	up_write(&umidi->disc_rwsem);
+
+#endif
 	for (i = 0; i < MIDI_MAX_ENDPOINTS; ++i) {
 		struct snd_usb_midi_endpoint* ep = &umidi->endpoints[i];
 		if (ep->out)
@@ -2056,12 +2155,19 @@ void snd_usbmidi_input_stop(struct list_head* p)
 	unsigned int i, j;
 
 	umidi = list_entry(p, struct snd_usb_midi, list);
+#if defined(CONFIG_BCM_KF_ANDROID) && defined(CONFIG_BCM_ANDROID)
+	if (!umidi->input_running)
+		return;
+#endif
 	for (i = 0; i < MIDI_MAX_ENDPOINTS; ++i) {
 		struct snd_usb_midi_endpoint* ep = &umidi->endpoints[i];
 		if (ep->in)
 			for (j = 0; j < INPUT_URBS; ++j)
 				usb_kill_urb(ep->in->urbs[j]);
 	}
+#if defined(CONFIG_BCM_KF_ANDROID) && defined(CONFIG_BCM_ANDROID)
+	umidi->input_running = 0;
+#endif
 }
 
 static void snd_usbmidi_input_start_ep(struct snd_usb_midi_in_endpoint* ep)
@@ -2086,8 +2192,15 @@ void snd_usbmidi_input_start(struct list_head* p)
 	int i;
 
 	umidi = list_entry(p, struct snd_usb_midi, list);
+#if defined(CONFIG_BCM_KF_ANDROID) && defined(CONFIG_BCM_ANDROID)
+	if (umidi->input_running || !umidi->opened[1])
+		return;
+#endif
 	for (i = 0; i < MIDI_MAX_ENDPOINTS; ++i)
 		snd_usbmidi_input_start_ep(umidi->endpoints[i].in);
+#if defined(CONFIG_BCM_KF_ANDROID) && defined(CONFIG_BCM_ANDROID)
+	umidi->input_running = 1;
+#endif
 }
 
 /*
@@ -2113,6 +2226,9 @@ int snd_usbmidi_create(struct snd_card *card,
 	umidi->usb_protocol_ops = &snd_usbmidi_standard_ops;
 	init_timer(&umidi->error_timer);
 	spin_lock_init(&umidi->disc_lock);
+#if defined(CONFIG_BCM_KF_ANDROID) && defined(CONFIG_BCM_ANDROID)
+	init_rwsem(&umidi->disc_rwsem);
+#endif
 	mutex_init(&umidi->mutex);
 	umidi->usb_id = USB_ID(le16_to_cpu(umidi->dev->descriptor.idVendor),
 			       le16_to_cpu(umidi->dev->descriptor.idProduct));
@@ -2225,9 +2341,11 @@ int snd_usbmidi_create(struct snd_card *card,
 	}
 
 	list_add_tail(&umidi->list, midi_list);
+#if !defined(CONFIG_BCM_KF_ANDROID) || !defined(CONFIG_BCM_ANDROID)
 
 	for (i = 0; i < MIDI_MAX_ENDPOINTS; ++i)
 		snd_usbmidi_input_start_ep(umidi->endpoints[i].in);
+#endif
 	return 0;
 }
 

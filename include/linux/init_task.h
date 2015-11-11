@@ -123,6 +123,17 @@ extern struct group_info init_groups;
 
 extern struct cred init_cred;
 
+#if defined(CONFIG_BCM_KF_ANDROID) && defined(CONFIG_BCM_ANDROID)
+extern struct task_group root_task_group;
+
+#ifdef CONFIG_CGROUP_SCHED
+# define INIT_CGROUP_SCHED(tsk)						\
+	.sched_task_group = &root_task_group,
+#else
+# define INIT_CGROUP_SCHED(tsk)
+#endif
+
+#endif
 #ifdef CONFIG_PERF_EVENTS
 # define INIT_PERF_EVENTS(tsk)					\
 	.perf_event_mutex = 						\
@@ -144,6 +155,7 @@ extern struct cred init_cred;
  *  INIT_TASK is used to set up the first task table, touch at
  * your own risk!. Base=0, limit=0x1fffff (=2MB)
  */
+#if !defined(CONFIG_BCM_KF_ANDROID) || !defined(CONFIG_BCM_ANDROID)
 #define INIT_TASK(tsk)	\
 {									\
 	.state		= 0,						\
@@ -208,6 +220,73 @@ extern struct cred init_cred;
 	INIT_TASK_RCU_PREEMPT(tsk)					\
 	INIT_CPUSET_SEQ							\
 }
+#else
+#define INIT_TASK(tsk)	\
+{									\
+	.state		= 0,						\
+	.stack		= &init_thread_info,				\
+	.usage		= ATOMIC_INIT(2),				\
+	.flags		= PF_KTHREAD,					\
+	.prio		= MAX_PRIO-20,					\
+	.static_prio	= MAX_PRIO-20,					\
+	.normal_prio	= MAX_PRIO-20,					\
+	.policy		= SCHED_NORMAL,					\
+	.cpus_allowed	= CPU_MASK_ALL,					\
+	.mm		= NULL,						\
+	.active_mm	= &init_mm,					\
+	.se		= {						\
+		.group_node 	= LIST_HEAD_INIT(tsk.se.group_node),	\
+	},								\
+	.rt		= {						\
+		.run_list	= LIST_HEAD_INIT(tsk.rt.run_list),	\
+		.time_slice	= RR_TIMESLICE,				\
+		.nr_cpus_allowed = NR_CPUS,				\
+	},								\
+	.tasks		= LIST_HEAD_INIT(tsk.tasks),			\
+	INIT_PUSHABLE_TASKS(tsk)					\
+	INIT_CGROUP_SCHED(tsk)						\
+	.ptraced	= LIST_HEAD_INIT(tsk.ptraced),			\
+	.ptrace_entry	= LIST_HEAD_INIT(tsk.ptrace_entry),		\
+	.real_parent	= &tsk,						\
+	.parent		= &tsk,						\
+	.children	= LIST_HEAD_INIT(tsk.children),			\
+	.sibling	= LIST_HEAD_INIT(tsk.sibling),			\
+	.group_leader	= &tsk,						\
+	RCU_INIT_POINTER(.real_cred, &init_cred),			\
+	RCU_INIT_POINTER(.cred, &init_cred),				\
+	.comm		= INIT_TASK_COMM,				\
+	.thread		= INIT_THREAD,					\
+	.fs		= &init_fs,					\
+	.files		= &init_files,					\
+	.signal		= &init_signals,				\
+	.sighand	= &init_sighand,				\
+	.nsproxy	= &init_nsproxy,				\
+	.pending	= {						\
+		.list = LIST_HEAD_INIT(tsk.pending.list),		\
+		.signal = {{0}}},					\
+	.blocked	= {{0}},					\
+	.alloc_lock	= __SPIN_LOCK_UNLOCKED(tsk.alloc_lock),		\
+	.journal_info	= NULL,						\
+	.cpu_timers	= INIT_CPU_TIMERS(tsk.cpu_timers),		\
+	.pi_lock	= __RAW_SPIN_LOCK_UNLOCKED(tsk.pi_lock),	\
+	.timer_slack_ns = 50000, /* 50 usec default slack */		\
+	INIT_TIMER_LIST							\
+	.pids = {							\
+		[PIDTYPE_PID]  = INIT_PID_LINK(PIDTYPE_PID),		\
+		[PIDTYPE_PGID] = INIT_PID_LINK(PIDTYPE_PGID),		\
+		[PIDTYPE_SID]  = INIT_PID_LINK(PIDTYPE_SID),		\
+	},								\
+	.thread_group	= LIST_HEAD_INIT(tsk.thread_group),		\
+	INIT_IDS							\
+	INIT_PERF_EVENTS(tsk)						\
+	INIT_TRACE_IRQFLAGS						\
+	INIT_LOCKDEP							\
+	INIT_FTRACE_GRAPH						\
+	INIT_TRACE_RECURSION						\
+	INIT_TASK_RCU_PREEMPT(tsk)					\
+	INIT_CPUSET_SEQ							\
+}
+#endif
 
 
 #define INIT_CPU_TIMERS(cpu_timers)					\

@@ -1169,7 +1169,16 @@ static int nr_recvmsg(struct kiocb *iocb, struct socket *sock,
 		msg->msg_flags |= MSG_TRUNC;
 	}
 
+#if !defined(CONFIG_BCM_KF_ANDROID) || !defined(CONFIG_BCM_ANDROID)
 	skb_copy_datagram_iovec(skb, 0, msg->msg_iov, copied);
+#else
+	er = skb_copy_datagram_iovec(skb, 0, msg->msg_iov, copied);
+	if (er < 0) {
+		skb_free_datagram(sk, skb);
+		release_sock(sk);
+		return er;
+	}
+#endif
 
 	if (sax != NULL) {
 		sax->sax25_family = AF_NETROM;

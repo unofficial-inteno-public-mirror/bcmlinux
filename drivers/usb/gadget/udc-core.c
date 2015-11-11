@@ -265,7 +265,11 @@ static void usb_gadget_remove_driver(struct usb_udc *udc)
 		udc->driver->disconnect(udc->gadget);
 		usb_gadget_disconnect(udc->gadget);
 		udc->driver->unbind(udc->gadget);
+#if !defined(CONFIG_BCM_KF_ANDROID) || !defined(CONFIG_BCM_ANDROID)
 		usb_gadget_udc_stop(udc->gadget, udc->driver);
+#else
+		usb_gadget_udc_stop(udc->gadget, NULL);
+#endif
 	} else {
 		usb_gadget_stop(udc->gadget, udc->driver);
 	}

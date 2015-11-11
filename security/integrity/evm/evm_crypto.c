@@ -205,9 +205,16 @@ int evm_update_evmxattr(struct dentry *dentry, const char *xattr_name,
 		rc = __vfs_setxattr_noperm(dentry, XATTR_NAME_EVM,
 					   &xattr_data,
 					   sizeof(xattr_data), 0);
+#if !defined(CONFIG_BCM_KF_ANDROID) || !defined(CONFIG_BCM_ANDROID)
 	}
 	else if (rc == -ENODATA)
+#else
+	} else if (rc == -ENODATA && inode->i_op->removexattr) {
+#endif
 		rc = inode->i_op->removexattr(dentry, XATTR_NAME_EVM);
+#if defined(CONFIG_BCM_KF_ANDROID) && defined(CONFIG_BCM_ANDROID)
+	}
+#endif
 	return rc;
 }
 

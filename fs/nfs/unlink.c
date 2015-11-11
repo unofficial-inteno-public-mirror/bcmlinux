@@ -336,20 +336,28 @@ static void nfs_async_rename_done(struct rpc_task *task, void *calldata)
 	struct inode *old_dir = data->old_dir;
 	struct inode *new_dir = data->new_dir;
 	struct dentry *old_dentry = data->old_dentry;
+#if !defined(CONFIG_BCM_KF_ANDROID) || !defined(CONFIG_BCM_ANDROID)
 	struct dentry *new_dentry = data->new_dentry;
+#endif
 
 	if (!NFS_PROTO(old_dir)->rename_done(task, old_dir, new_dir)) {
 		rpc_restart_call_prepare(task);
 		return;
 	}
 
+#if !defined(CONFIG_BCM_KF_ANDROID) || !defined(CONFIG_BCM_ANDROID)
 	if (task->tk_status != 0) {
+#else
+	if (task->tk_status != 0)
+#endif
 		nfs_cancel_async_unlink(old_dentry);
+#if !defined(CONFIG_BCM_KF_ANDROID) || !defined(CONFIG_BCM_ANDROID)
 		return;
 	}
 
 	d_drop(old_dentry);
 	d_drop(new_dentry);
+#endif
 }
 
 /**
@@ -550,6 +558,20 @@ nfs_sillyrename(struct inode *dir, struct dentry *dentry)
 	error = rpc_wait_for_completion_task(task);
 	if (error == 0)
 		error = task->tk_status;
+#if defined(CONFIG_BCM_KF_ANDROID) && defined(CONFIG_BCM_ANDROID)
+	switch (error) {
+	case 0:
+		/* The rename succeeded */
+		nfs_set_verifier(dentry, nfs_save_change_attribute(dir));
+		d_move(dentry, sdentry);
+		break;
+	case -ERESTARTSYS:
+		/* The result of the rename is unknown. Play it safe by
+		 * forcing a new lookup */
+		d_drop(dentry);
+		d_drop(sdentry);
+	}
+#endif
 	rpc_put_task(task);
 out_dput:
 	dput(sdentry);

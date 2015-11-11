@@ -1281,6 +1281,16 @@ static void __fanout_unlink(struct sock *sk, struct packet_sock *po)
 	spin_unlock(&f->lock);
 }
 
+#if defined(CONFIG_BCM_KF_ANDROID) && defined(CONFIG_BCM_ANDROID)
+bool match_fanout_group(struct packet_type *ptype, struct sock * sk)
+{
+	if (ptype->af_packet_priv == (void*)((struct packet_sock *)sk)->fanout)
+		return true;
+
+	return false;
+}
+
+#endif
 static int fanout_add(struct sock *sk, u16 id, u16 type_flags)
 {
 	struct packet_sock *po = pkt_sk(sk);
@@ -1333,6 +1343,9 @@ static int fanout_add(struct sock *sk, u16 id, u16 type_flags)
 		match->prot_hook.dev = po->prot_hook.dev;
 		match->prot_hook.func = packet_rcv_fanout;
 		match->prot_hook.af_packet_priv = match;
+#if defined(CONFIG_BCM_KF_ANDROID) && defined(CONFIG_BCM_ANDROID)
+		match->prot_hook.id_match = match_fanout_group;
+#endif
 		dev_add_pack(&match->prot_hook);
 		list_add(&match->list, &fanout_list);
 	}
@@ -1944,7 +1957,9 @@ static void tpacket_destruct_skb(struct sk_buff *skb)
 
 	if (likely(po->tx_ring.pg_vec)) {
 		ph = skb_shinfo(skb)->destructor_arg;
+#if !defined(CONFIG_BCM_KF_ANDROID) || !defined(CONFIG_BCM_ANDROID)
 		BUG_ON(__packet_get_status(po, ph) != TP_STATUS_SENDING);
+#endif
 		BUG_ON(atomic_read(&po->tx_ring.pending) == 0);
 		atomic_dec(&po->tx_ring.pending);
 		__packet_set_status(po, ph, TP_STATUS_AVAILABLE);
@@ -2443,13 +2458,29 @@ static int packet_release(struct socket *sock)
 
 	packet_flush_mclist(sk);
 
+#if !defined(CONFIG_BCM_KF_ANDROID) || !defined(CONFIG_BCM_ANDROID)
 	memset(&req_u, 0, sizeof(req_u));
 
 	if (po->rx_ring.pg_vec)
+#else
+	if (po->rx_ring.pg_vec) {
+		memset(&req_u, 0, sizeof(req_u));
+#endif
 		packet_set_ring(sk, &req_u, 1, 0);
+#if defined(CONFIG_BCM_KF_ANDROID) && defined(CONFIG_BCM_ANDROID)
+	}
+#endif
 
+#if !defined(CONFIG_BCM_KF_ANDROID) || !defined(CONFIG_BCM_ANDROID)
 	if (po->tx_ring.pg_vec)
+#else
+	if (po->tx_ring.pg_vec) {
+		memset(&req_u, 0, sizeof(req_u));
+#endif
 		packet_set_ring(sk, &req_u, 1, 1);
+#if defined(CONFIG_BCM_KF_ANDROID) && defined(CONFIG_BCM_ANDROID)
+	}
+#endif
 
 	fanout_release(sk);
 

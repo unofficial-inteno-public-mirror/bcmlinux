@@ -461,7 +461,11 @@ static int generic_request(struct vdc_port *port, u8 op, void *buf, int len)
 	int op_len, err;
 	void *req_buf;
 
+#if !defined(CONFIG_BCM_KF_ANDROID) || !defined(CONFIG_BCM_ANDROID)
 	if (!(((u64)1 << ((u64)op - 1)) & port->operations))
+#else
+	if (!(((u64)1 << (u64)op) & port->operations))
+#endif
 		return -EOPNOTSUPP;
 
 	switch (op) {

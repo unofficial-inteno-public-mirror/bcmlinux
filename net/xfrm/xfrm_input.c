@@ -212,7 +212,11 @@ resume:
 		/* only the first xfrm gets the encap type */
 		encap_type = 0;
 
+#if !defined(CONFIG_BCM_KF_ANDROID) || !defined(CONFIG_BCM_ANDROID)
 		if (async && x->repl->check(x, skb, seq)) {
+#else
+		if (async && x->repl->recheck(x, skb, seq)) {
+#endif
 			XFRM_INC_STATS(net, LINUX_MIB_XFRMINSTATESEQERROR);
 			goto drop_unlock;
 		}

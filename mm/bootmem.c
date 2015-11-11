@@ -766,13 +766,27 @@ void * __init alloc_bootmem_section(unsigned long size,
 				    unsigned long section_nr)
 {
 	bootmem_data_t *bdata;
+#if !defined(CONFIG_BCM_KF_ANDROID) || !defined(CONFIG_BCM_ANDROID)
 	unsigned long pfn, goal;
+#else
+	unsigned long pfn, goal, limit;
+#endif
 
 	pfn = section_nr_to_pfn(section_nr);
 	goal = pfn << PAGE_SHIFT;
+#if defined(CONFIG_BCM_KF_ANDROID) && defined(CONFIG_BCM_ANDROID)
+	limit = section_nr_to_pfn(section_nr + 1) << PAGE_SHIFT;
+#endif
 	bdata = &bootmem_node_data[early_pfn_to_nid(pfn)];
 
+#if !defined(CONFIG_BCM_KF_ANDROID) || !defined(CONFIG_BCM_ANDROID)
 	return alloc_bootmem_core(bdata, size, SMP_CACHE_BYTES, goal, 0);
+#else
+	if (goal + size > limit)
+		limit = 0;
+
+	return alloc_bootmem_core(bdata, size, SMP_CACHE_BYTES, goal, limit);
+#endif
 }
 #endif
 

@@ -45,7 +45,12 @@ static struct vfsmount *nfs_do_submount(struct dentry *dentry,
  * server side when automounting on top of an existing partition
  * and in generating /proc/mounts and friends.
  */
+#if !defined(CONFIG_BCM_KF_ANDROID) || !defined(CONFIG_BCM_ANDROID)
 char *nfs_path(char **p, struct dentry *dentry, char *buffer, ssize_t buflen)
+#else
+char *nfs_path(char **p, struct dentry *dentry, char *buffer, ssize_t buflen,
+	       unsigned flags)
+#endif
 {
 	char *end;
 	int namelen;
@@ -78,7 +83,11 @@ rename_retry:
 		rcu_read_unlock();
 		goto rename_retry;
 	}
+#if !defined(CONFIG_BCM_KF_ANDROID) || !defined(CONFIG_BCM_ANDROID)
 	if (*end != '/') {
+#else
+	if ((flags & NFS_PATH_CANONICAL) && *end != '/') {
+#endif
 		if (--buflen < 0) {
 			spin_unlock(&dentry->d_lock);
 			rcu_read_unlock();
@@ -95,9 +104,17 @@ rename_retry:
 		return end;
 	}
 	namelen = strlen(base);
+#if !defined(CONFIG_BCM_KF_ANDROID) || !defined(CONFIG_BCM_ANDROID)
 	/* Strip off excess slashes in base string */
 	while (namelen > 0 && base[namelen - 1] == '/')
 		namelen--;
+#else
+	if (flags & NFS_PATH_CANONICAL) {
+		/* Strip off excess slashes in base string */
+		while (namelen > 0 && base[namelen - 1] == '/')
+			namelen--;
+	}
+#endif
 	buflen -= namelen;
 	if (buflen < 0) {
 		spin_unlock(&dentry->d_lock);
@@ -244,11 +261,37 @@ out_nofree:
 	return mnt;
 }
 
+#if defined(CONFIG_BCM_KF_ANDROID) && defined(CONFIG_BCM_ANDROID)
+static int
+nfs_namespace_getattr(struct vfsmount *mnt, struct dentry *dentry, struct kstat *stat)
+{
+	if (NFS_FH(dentry->d_inode)->size != 0)
+		return nfs_getattr(mnt, dentry, stat);
+	generic_fillattr(dentry->d_inode, stat);
+	return 0;
+}
+
+static int
+nfs_namespace_setattr(struct dentry *dentry, struct iattr *attr)
+{
+	if (NFS_FH(dentry->d_inode)->size != 0)
+		return nfs_setattr(dentry, attr);
+	return -EACCES;
+}
+
+#endif
 const struct inode_operations nfs_mountpoint_inode_operations = {
 	.getattr	= nfs_getattr,
+#if defined(CONFIG_BCM_KF_ANDROID) && defined(CONFIG_BCM_ANDROID)
+	.setattr	= nfs_setattr,
+#endif
 };
 
 const struct inode_operations nfs_referral_inode_operations = {
+#if defined(CONFIG_BCM_KF_ANDROID) && defined(CONFIG_BCM_ANDROID)
+	.getattr	= nfs_namespace_getattr,
+	.setattr	= nfs_namespace_setattr,
+#endif
 };
 
 static void nfs_expire_automounts(struct work_struct *work)

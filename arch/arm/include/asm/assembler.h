@@ -320,4 +320,14 @@
 	.size \name , . - \name
 	.endm
 
+#if defined(CONFIG_BCM_KF_ANDROID) && defined(CONFIG_BCM_ANDROID)
+	.macro check_uaccess, addr:req, size:req, limit:req, tmp:req, bad:req
+#ifndef CONFIG_CPU_USE_DOMAINS
+	adds	\tmp, \addr, #\size - 1
+	sbcccs	\tmp, \tmp, \limit
+	bcs	\bad
+#endif
+	.endm
+
+#endif
 #endif /* __ASM_ASSEMBLER_H__ */

@@ -1025,7 +1025,11 @@ static const struct tty_operations gs_tty_ops = {
 
 static struct tty_driver *gs_tty_driver;
 
+#if !defined(CONFIG_BCM_KF_ANDROID) || !defined(CONFIG_BCM_ANDROID)
 static int __init
+#else
+static int
+#endif
 gs_port_alloc(unsigned port_num, struct usb_cdc_line_coding *coding)
 {
 	struct gs_port	*port;
@@ -1071,7 +1075,11 @@ gs_port_alloc(unsigned port_num, struct usb_cdc_line_coding *coding)
  *
  * Returns negative errno or zero.
  */
+#if !defined(CONFIG_BCM_KF_ANDROID) || !defined(CONFIG_BCM_ANDROID)
 int __init gserial_setup(struct usb_gadget *g, unsigned count)
+#else
+int gserial_setup(struct usb_gadget *g, unsigned count)
+#endif
 {
 	unsigned			i;
 	struct usb_cdc_line_coding	coding;

@@ -5,7 +5,11 @@
 #include <linux/export.h>
 #include "vlan.h"
 
+#if !defined(CONFIG_BCM_KF_ANDROID) || !defined(CONFIG_BCM_ANDROID)
 bool vlan_do_receive(struct sk_buff **skbp, bool last_handler)
+#else
+bool vlan_do_receive(struct sk_buff **skbp)
+#endif
 {
 	struct sk_buff *skb = *skbp;
 	u16 vlan_id = skb->vlan_tci & VLAN_VID_MASK;
@@ -13,14 +17,20 @@ bool vlan_do_receive(struct sk_buff **skbp, bool last_handler)
 	struct vlan_pcpu_stats *rx_stats;
 
 	vlan_dev = vlan_find_dev(skb->dev, vlan_id);
+#if !defined(CONFIG_BCM_KF_ANDROID) || !defined(CONFIG_BCM_ANDROID)
 	if (!vlan_dev) {
 		/* Only the last call to vlan_do_receive() should change
 		 * pkt_type to PACKET_OTHERHOST
 		 */
 		if (vlan_id && last_handler)
 			skb->pkt_type = PACKET_OTHERHOST;
+#else
+	if (!vlan_dev)
+#endif
 		return false;
+#if !defined(CONFIG_BCM_KF_ANDROID) || !defined(CONFIG_BCM_ANDROID)
 	}
+#endif
 
 	skb = *skbp = skb_share_check(skb, GFP_ATOMIC);
 	if (unlikely(!skb))
@@ -106,7 +116,9 @@ static struct sk_buff *vlan_reorder_header(struct sk_buff *skb)
 		return NULL;
 	memmove(skb->data - ETH_HLEN, skb->data - VLAN_ETH_HLEN, 2 * ETH_ALEN);
 	skb->mac_header += VLAN_HLEN;
+#if !defined(CONFIG_BCM_KF_ANDROID) || !defined(CONFIG_BCM_ANDROID)
 	skb_reset_mac_len(skb);
+#endif
 	return skb;
 }
 
@@ -140,6 +152,10 @@ struct sk_buff *vlan_untag(struct sk_buff *skb)
 
 	skb_reset_network_header(skb);
 	skb_reset_transport_header(skb);
+#if defined(CONFIG_BCM_KF_ANDROID) && defined(CONFIG_BCM_ANDROID)
+	skb_reset_mac_len(skb);
+
+#endif
 	return skb;
 
 err_free:

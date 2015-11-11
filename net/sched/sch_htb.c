@@ -879,7 +879,11 @@ ok:
 	q->now = psched_get_time();
 	start_at = jiffies;
 
+#if !defined(CONFIG_BCM_KF_ANDROID) || !defined(CONFIG_BCM_ANDROID)
 	next_event = q->now + 5 * PSCHED_TICKS_PER_SEC;
+#else
+	next_event = q->now + 5LLU * PSCHED_TICKS_PER_SEC;
+#endif
 
 	for (level = 0; level < TC_HTB_MAXDEPTH; level++) {
 		/* common case optimization - skip event handler quickly */

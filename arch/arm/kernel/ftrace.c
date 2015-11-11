@@ -13,6 +13,9 @@
  */
 
 #include <linux/ftrace.h>
+#if defined(CONFIG_BCM_KF_ANDROID) && defined(CONFIG_BCM_ANDROID)
+#include <linux/module.h>
+#endif
 #include <linux/uaccess.h>
 
 #include <asm/cacheflush.h>
@@ -63,6 +66,22 @@ static unsigned long adjust_address(struct dyn_ftrace *rec, unsigned long addr)
 }
 #endif
 
+#if defined(CONFIG_BCM_KF_ANDROID) && defined(CONFIG_BCM_ANDROID)
+int ftrace_arch_code_modify_prepare(void)
+{
+	set_kernel_text_rw();
+	set_all_modules_text_rw();
+	return 0;
+}
+
+int ftrace_arch_code_modify_post_process(void)
+{
+	set_all_modules_text_ro();
+	set_kernel_text_ro();
+	return 0;
+}
+
+#endif
 static unsigned long ftrace_call_replace(unsigned long pc, unsigned long addr)
 {
 	return arm_gen_branch_link(pc, addr);
@@ -179,6 +198,7 @@ void prepare_ftrace_return(unsigned long *parent, unsigned long self_addr,
 	old = *parent;
 	*parent = return_hooker;
 
+#if !defined(CONFIG_BCM_KF_ANDROID) || !defined(CONFIG_BCM_ANDROID)
 	err = ftrace_push_return_trace(old, self_addr, &trace.depth,
 				       frame_pointer);
 	if (err == -EBUSY) {
@@ -186,12 +206,28 @@ void prepare_ftrace_return(unsigned long *parent, unsigned long self_addr,
 		return;
 	}
 
+#endif
 	trace.func = self_addr;
+#if defined(CONFIG_BCM_KF_ANDROID) && defined(CONFIG_BCM_ANDROID)
+	trace.depth = current->curr_ret_stack + 1;
+#endif
 
 	/* Only trace if the calling function expects to */
 	if (!ftrace_graph_entry(&trace)) {
+#if !defined(CONFIG_BCM_KF_ANDROID) || !defined(CONFIG_BCM_ANDROID)
 		current->curr_ret_stack--;
+#endif
 		*parent = old;
+#if defined(CONFIG_BCM_KF_ANDROID) && defined(CONFIG_BCM_ANDROID)
+		return;
+	}
+
+	err = ftrace_push_return_trace(old, self_addr, &trace.depth,
+				       frame_pointer);
+	if (err == -EBUSY) {
+		*parent = old;
+		return;
+#endif
 	}
 }
 

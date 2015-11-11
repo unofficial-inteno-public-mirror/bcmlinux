@@ -937,14 +937,26 @@ static void l2cap_chan_ready(struct l2cap_chan *chan)
 static void l2cap_conn_ready(struct l2cap_conn *conn)
 {
 	struct l2cap_chan *chan;
+#if defined(CONFIG_BCM_KF_ANDROID) && defined(CONFIG_BCM_ANDROID)
+	struct hci_conn *hcon = conn->hcon;
+#endif
 
 	BT_DBG("conn %p", conn);
 
+#if !defined(CONFIG_BCM_KF_ANDROID) || !defined(CONFIG_BCM_ANDROID)
 	if (!conn->hcon->out && conn->hcon->type == LE_LINK)
+#else
+	if (!hcon->out && hcon->type == LE_LINK)
+#endif
 		l2cap_le_conn_ready(conn);
 
+#if !defined(CONFIG_BCM_KF_ANDROID) || !defined(CONFIG_BCM_ANDROID)
 	if (conn->hcon->out && conn->hcon->type == LE_LINK)
 		smp_conn_security(conn, conn->hcon->pending_sec_level);
+#else
+	if (hcon->out && hcon->type == LE_LINK)
+		smp_conn_security(hcon, hcon->pending_sec_level);
+#endif
 
 	mutex_lock(&conn->chan_lock);
 
@@ -952,8 +964,13 @@ static void l2cap_conn_ready(struct l2cap_conn *conn)
 
 		l2cap_chan_lock(chan);
 
+#if !defined(CONFIG_BCM_KF_ANDROID) || !defined(CONFIG_BCM_ANDROID)
 		if (conn->hcon->type == LE_LINK) {
 			if (smp_conn_security(conn, chan->sec_level))
+#else
+		if (hcon->type == LE_LINK) {
+			if (smp_conn_security(hcon, chan->sec_level))
+#endif
 				l2cap_chan_ready(chan);
 
 		} else if (chan->chan_type != L2CAP_CHAN_CONN_ORIENTED) {
@@ -1219,10 +1236,18 @@ int l2cap_chan_connect(struct l2cap_chan *chan, __le16 psm, u16 cid, bdaddr_t *d
 	auth_type = l2cap_get_auth_type(chan);
 
 	if (chan->dcid == L2CAP_CID_LE_DATA)
+#if !defined(CONFIG_BCM_KF_ANDROID) || !defined(CONFIG_BCM_ANDROID)
 		hcon = hci_connect(hdev, LE_LINK, dst,
+#else
+		hcon = hci_connect(hdev, LE_LINK, 0, dst,
+#endif
 					chan->sec_level, auth_type);
 	else
+#if !defined(CONFIG_BCM_KF_ANDROID) || !defined(CONFIG_BCM_ANDROID)
 		hcon = hci_connect(hdev, ACL_LINK, dst,
+#else
+		hcon = hci_connect(hdev, ACL_LINK, 0, dst,
+#endif
 					chan->sec_level, auth_type);
 
 	if (IS_ERR(hcon)) {
@@ -2584,12 +2609,23 @@ static void l2cap_conf_rfc_get(struct l2cap_chan *chan, void *rsp, int len)
 	while (len >= L2CAP_CONF_OPT_SIZE) {
 		len -= l2cap_get_conf_opt(&rsp, &type, &olen, &val);
 
+#if !defined(CONFIG_BCM_KF_ANDROID) || !defined(CONFIG_BCM_ANDROID)
 		switch (type) {
 		case L2CAP_CONF_RFC:
 			if (olen == sizeof(rfc))
 				memcpy(&rfc, (void *)val, olen);
 			goto done;
 		}
+#else
+		if (type != L2CAP_CONF_RFC)
+			continue;
+
+		if (olen != sizeof(rfc))
+			break;
+
+		memcpy(&rfc, (void *)val, olen);
+		goto done;
+#endif
 	}
 
 	/* Use sane default values in case a misbehaving remote device

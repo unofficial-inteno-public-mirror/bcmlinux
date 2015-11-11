@@ -1,0 +1,50 @@
+--- sound/core/oss/pcm_oss.c	2015-11-10 18:02:49.230296887 +0100
++++ sound/core/oss/pcm_oss.c	2015-11-06 12:40:04.000000000 +0100
+@@ -1943,6 +1943,13 @@
+ #endif
+ 	/* DSP_CAP_REALTIME is set all times: */
+ 	/* all ALSA drivers can return actual pointer in ring buffer */
++#if defined(DSP_CAP_REALTIME) && 0
++	{
++		struct snd_pcm_runtime *runtime = substream->runtime;
++		if (runtime->info & (SNDRV_PCM_INFO_BLOCK_TRANSFER|SNDRV_PCM_INFO_BATCH))
++			res &= ~DSP_CAP_REALTIME;
++	}
++#endif
+ 	return res;
+ }
+ 
+@@ -2434,6 +2441,12 @@
+ 		mutex_unlock(&pcm->open_mutex);
+ 		schedule();
+ 		mutex_lock(&pcm->open_mutex);
++#if defined(CONFIG_BCM_KF_ANDROID) && defined(CONFIG_BCM_ANDROID)
++		if (pcm->card->shutdown) {
++			err = -ENODEV;
++			break;
++		}
++#endif
+ 		if (signal_pending(current)) {
+ 			err = -ERESTARTSYS;
+ 			break;
+@@ -2443,6 +2456,9 @@
+ 	mutex_unlock(&pcm->open_mutex);
+ 	if (err < 0)
+ 		goto __error;
++#if defined(CONFIG_BCM_KF_ANDROID) && defined(CONFIG_BCM_ANDROID)
++	snd_card_unref(pcm->card);
++#endif
+ 	return err;
+ 
+       __error:
+@@ -2450,6 +2466,10 @@
+       __error2:
+       	snd_card_file_remove(pcm->card, file);
+       __error1:
++#if defined(CONFIG_BCM_KF_ANDROID) && defined(CONFIG_BCM_ANDROID)
++	if (pcm)
++		snd_card_unref(pcm->card);
++#endif
+ 	return err;
+ }
+ 

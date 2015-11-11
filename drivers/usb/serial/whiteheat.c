@@ -525,6 +525,9 @@ no_firmware:
 		"%s: please contact support@connecttech.com\n",
 		serial->type->description);
 	kfree(result);
+#if defined(CONFIG_BCM_KF_ANDROID) && defined(CONFIG_BCM_ANDROID)
+	kfree(command);
+#endif
 	return -ENODEV;
 
 no_command_private:

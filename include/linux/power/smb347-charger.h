@@ -110,8 +110,20 @@ struct smb347_charger_platform_data {
 	bool		use_mains;
 	bool		use_usb;
 	bool		use_usb_otg;
+#if defined(CONFIG_BCM_KF_ANDROID) && defined(CONFIG_BCM_ANDROID)
+	bool		disable_automatic_recharge;
+#endif
 	int		irq_gpio;
+#if defined(CONFIG_BCM_KF_ANDROID) && defined(CONFIG_BCM_ANDROID)
+	bool		disable_stat_interrupts;
+#endif
 	enum smb347_chg_enable enable_control;
+#if defined(CONFIG_BCM_KF_ANDROID) && defined(CONFIG_BCM_ANDROID)
+	bool		usb_mode_pin_ctrl;
+	char		**supplied_to;
+	size_t		num_supplicants;
+	int		en_gpio;
+#endif
 };
 
 #endif /* SMB347_CHARGER_H */

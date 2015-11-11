@@ -57,6 +57,10 @@ struct logger_reader {
 	struct logger_log	*log;	/* associated log */
 	struct list_head	list;	/* entry in logger_log's list */
 	size_t			r_off;	/* current read head offset */
+#if defined(CONFIG_BCM_KF_ANDROID) && defined(CONFIG_BCM_ANDROID)
+	bool			r_all;	/* reader can read all entries */
+	int			r_ver;	/* reader ABI version */
+#endif
 };
 
 /* logger_offset - returns index 'n' into the log via (optimized) modulus */
@@ -89,6 +93,29 @@ static inline struct logger_log *file_get_log(struct file *file)
 		return file->private_data;
 }
 
+#if defined(CONFIG_BCM_KF_ANDROID) && defined(CONFIG_BCM_ANDROID)
+/*
+ * get_entry_header - returns a pointer to the logger_entry header within
+ * 'log' starting at offset 'off'. A temporary logger_entry 'scratch' must
+ * be provided. Typically the return value will be a pointer within
+ * 'logger->buf'.  However, a pointer to 'scratch' may be returned if
+ * the log entry spans the end and beginning of the circular buffer.
+ */
+static struct logger_entry *get_entry_header(struct logger_log *log,
+		size_t off, struct logger_entry *scratch)
+{
+	size_t len = min(sizeof(struct logger_entry), log->size - off);
+	if (len != sizeof(struct logger_entry)) {
+		memcpy(((void *) scratch), log->buffer + off, len);
+		memcpy(((void *) scratch) + len, log->buffer,
+			sizeof(struct logger_entry) - len);
+		return scratch;
+	}
+
+	return (struct logger_entry *) (log->buffer + off);
+}
+
+#endif /* ANDROID */
 /*
  * get_entry_len - Grabs the length of the payload of the next entry starting
  * from 'off'.
@@ -99,20 +126,72 @@ static inline struct logger_log *file_get_log(struct file *file)
  *
  * Caller needs to hold log->mutex.
  */
+#if !defined(CONFIG_BCM_KF_ANDROID) || !defined(CONFIG_BCM_ANDROID)
 static __u32 get_entry_len(struct logger_log *log, size_t off)
+#else
+static __u32 get_entry_msg_len(struct logger_log *log, size_t off)
+#endif
 {
+#if !defined(CONFIG_BCM_KF_ANDROID) || !defined(CONFIG_BCM_ANDROID)
 	__u16 val;
+#else
+	struct logger_entry scratch;
+	struct logger_entry *entry;
+#endif
 
+#if !defined(CONFIG_BCM_KF_ANDROID) || !defined(CONFIG_BCM_ANDROID)
 	/* copy 2 bytes from buffer, in memcpy order, */
 	/* handling possible wrap at end of buffer */
+#else
+	entry = get_entry_header(log, off, &scratch);
+	return entry->len;
+}
+#endif
 
+#if !defined(CONFIG_BCM_KF_ANDROID) || !defined(CONFIG_BCM_ANDROID)
 	((__u8 *)&val)[0] = log->buffer[off];
 	if (likely(off+1 < log->size))
 		((__u8 *)&val)[1] = log->buffer[off+1];
+#else
+static size_t get_user_hdr_len(int ver)
+{
+	if (ver < 2)
+		return sizeof(struct user_logger_entry_compat);
+#endif
 	else
+#if !defined(CONFIG_BCM_KF_ANDROID) || !defined(CONFIG_BCM_ANDROID)
 		((__u8 *)&val)[1] = log->buffer[0];
+#else
+		return sizeof(struct logger_entry);
+}
+#endif
 
+#if !defined(CONFIG_BCM_KF_ANDROID) || !defined(CONFIG_BCM_ANDROID)
 	return sizeof(struct logger_entry) + val;
+#else
+static ssize_t copy_header_to_user(int ver, struct logger_entry *entry,
+					 char __user *buf)
+{
+	void *hdr;
+	size_t hdr_len;
+	struct user_logger_entry_compat v1;
+
+	if (ver < 2) {
+		v1.len      = entry->len;
+		v1.__pad    = 0;
+		v1.pid      = entry->pid;
+		v1.tid      = entry->tid;
+		v1.sec      = entry->sec;
+		v1.nsec     = entry->nsec;
+		hdr         = &v1;
+		hdr_len     = sizeof(struct user_logger_entry_compat);
+	} else {
+		hdr         = entry;
+		hdr_len     = sizeof(struct logger_entry);
+	}
+
+	return copy_to_user(buf, hdr, hdr_len);
+#endif
 }
 
 /*
@@ -126,8 +205,16 @@ static ssize_t do_read_log_to_user(struct logger_log *log,
 				   char __user *buf,
 				   size_t count)
 {
+#if defined(CONFIG_BCM_KF_ANDROID) && defined(CONFIG_BCM_ANDROID)
+	struct logger_entry scratch;
+	struct logger_entry *entry;
+#endif
 	size_t len;
+#if defined(CONFIG_BCM_KF_ANDROID) && defined(CONFIG_BCM_ANDROID)
+	size_t msg_start;
+#endif
 
+#if !defined(CONFIG_BCM_KF_ANDROID) || !defined(CONFIG_BCM_ANDROID)
 	/*
 	 * We read from the log in two disjoint operations. First, we read from
 	 * the current read head offset up to 'count' bytes or to the end of
@@ -135,6 +222,28 @@ static ssize_t do_read_log_to_user(struct logger_log *log,
 	 */
 	len = min(count, log->size - reader->r_off);
 	if (copy_to_user(buf, log->buffer + reader->r_off, len))
+#else /* ANDROID */
+	/*
+	 * First, copy the header to userspace, using the version of
+	 * the header requested
+	 */
+	entry = get_entry_header(log, reader->r_off, &scratch);
+	if (copy_header_to_user(reader->r_ver, entry, buf))
+		return -EFAULT;
+
+	count -= get_user_hdr_len(reader->r_ver);
+	buf += get_user_hdr_len(reader->r_ver);
+	msg_start = logger_offset(log,
+		reader->r_off + sizeof(struct logger_entry));
+
+	/*
+	 * We read from the msg in two disjoint operations. First, we read from
+	 * the current msg head offset up to 'count' bytes or to the end of
+	 * the log, whichever comes first.
+	 */
+	len = min(count, log->size - msg_start);
+	if (copy_to_user(buf, log->buffer + msg_start, len))
+#endif /* ANDROID */
 		return -EFAULT;
 
 	/*
@@ -145,9 +254,42 @@ static ssize_t do_read_log_to_user(struct logger_log *log,
 		if (copy_to_user(buf + len, log->buffer, count - len))
 			return -EFAULT;
 
+#if !defined(CONFIG_BCM_KF_ANDROID) || !defined(CONFIG_BCM_ANDROID)
 	reader->r_off = logger_offset(log, reader->r_off + count);
+#else
+	reader->r_off = logger_offset(log, reader->r_off +
+		sizeof(struct logger_entry) + count);
+#endif
 
+#if !defined(CONFIG_BCM_KF_ANDROID) || !defined(CONFIG_BCM_ANDROID)
 	return count;
+#else
+	return count + get_user_hdr_len(reader->r_ver);
+}
+
+/*
+ * get_next_entry_by_uid - Starting at 'off', returns an offset into
+ * 'log->buffer' which contains the first entry readable by 'euid'
+ */
+static size_t get_next_entry_by_uid(struct logger_log *log,
+		size_t off, uid_t euid)
+{
+	while (off != log->w_off) {
+		struct logger_entry *entry;
+		struct logger_entry scratch;
+		size_t next_len;
+
+		entry = get_entry_header(log, off, &scratch);
+
+		if (entry->euid == euid)
+			return off;
+
+		next_len = sizeof(struct logger_entry) + entry->len;
+		off = logger_offset(log, off + next_len);
+	}
+
+	return off;
+#endif
 }
 
 /*
@@ -200,6 +342,12 @@ start:
 
 	mutex_lock(&log->mutex);
 
+#if defined(CONFIG_BCM_KF_ANDROID) && defined(CONFIG_BCM_ANDROID)
+	if (!reader->r_all)
+		reader->r_off = get_next_entry_by_uid(log,
+			reader->r_off, current_euid());
+
+#endif
 	/* is there still something to read or did we race? */
 	if (unlikely(log->w_off == reader->r_off)) {
 		mutex_unlock(&log->mutex);
@@ -207,7 +355,12 @@ start:
 	}
 
 	/* get the size of the next entry */
+#if !defined(CONFIG_BCM_KF_ANDROID) || !defined(CONFIG_BCM_ANDROID)
 	ret = get_entry_len(log, reader->r_off);
+#else
+	ret = get_user_hdr_len(reader->r_ver) +
+		get_entry_msg_len(log, reader->r_off);
+#endif
 	if (count < ret) {
 		ret = -EINVAL;
 		goto out;
@@ -233,7 +386,12 @@ static size_t get_next_entry(struct logger_log *log, size_t off, size_t len)
 	size_t count = 0;
 
 	do {
+#if !defined(CONFIG_BCM_KF_ANDROID) || !defined(CONFIG_BCM_ANDROID)
 		size_t nr = get_entry_len(log, off);
+#else
+		size_t nr = sizeof(struct logger_entry) +
+			get_entry_msg_len(log, off);
+#endif
 		off = logger_offset(log, off + nr);
 		count += nr;
 	} while (count < len);
@@ -363,7 +521,13 @@ ssize_t logger_aio_write(struct kiocb *iocb, const struct iovec *iov,
 	header.tid = current->pid;
 	header.sec = now.tv_sec;
 	header.nsec = now.tv_nsec;
+#if defined(CONFIG_BCM_KF_ANDROID) && defined(CONFIG_BCM_ANDROID)
+	header.euid = current_euid();
+#endif
 	header.len = min_t(size_t, iocb->ki_left, LOGGER_ENTRY_MAX_PAYLOAD);
+#if defined(CONFIG_BCM_KF_ANDROID) && defined(CONFIG_BCM_ANDROID)
+	header.hdr_size = sizeof(struct logger_entry);
+#endif
 
 	/* null writes succeed, return zero */
 	if (unlikely(!header.len))
@@ -436,6 +600,12 @@ static int logger_open(struct inode *inode, struct file *file)
 			return -ENOMEM;
 
 		reader->log = log;
+#if defined(CONFIG_BCM_KF_ANDROID) && defined(CONFIG_BCM_ANDROID)
+		reader->r_ver = 1;
+		reader->r_all = in_egroup_p(inode->i_gid) ||
+			capable(CAP_SYSLOG);
+
+#endif
 		INIT_LIST_HEAD(&reader->list);
 
 		mutex_lock(&log->mutex);
@@ -495,6 +665,12 @@ static unsigned int logger_poll(struct file *file, poll_table *wait)
 	poll_wait(file, &log->wq, wait);
 
 	mutex_lock(&log->mutex);
+#if defined(CONFIG_BCM_KF_ANDROID) && defined(CONFIG_BCM_ANDROID)
+	if (!reader->r_all)
+		reader->r_off = get_next_entry_by_uid(log,
+			reader->r_off, current_euid());
+
+#endif
 	if (log->w_off != reader->r_off)
 		ret |= POLLIN | POLLRDNORM;
 	mutex_unlock(&log->mutex);
@@ -502,11 +678,31 @@ static unsigned int logger_poll(struct file *file, poll_table *wait)
 	return ret;
 }
 
+#if defined(CONFIG_BCM_KF_ANDROID) && defined(CONFIG_BCM_ANDROID)
+static long logger_set_version(struct logger_reader *reader, void __user *arg)
+{
+	int version;
+	if (copy_from_user(&version, arg, sizeof(int)))
+		return -EFAULT;
+
+	if ((version < 1) || (version > 2))
+		return -EINVAL;
+
+	reader->r_ver = version;
+	return 0;
+}
+
+#endif
 static long logger_ioctl(struct file *file, unsigned int cmd, unsigned long arg)
 {
 	struct logger_log *log = file_get_log(file);
 	struct logger_reader *reader;
+#if !defined(CONFIG_BCM_KF_ANDROID) || !defined(CONFIG_BCM_ANDROID)
 	long ret = -ENOTTY;
+#else
+	long ret = -EINVAL;
+	void __user *argp = (void __user *) arg;
+#endif
 
 	mutex_lock(&log->mutex);
 
@@ -531,8 +727,20 @@ static long logger_ioctl(struct file *file, unsigned int cmd, unsigned long arg)
 			break;
 		}
 		reader = file->private_data;
+#if defined(CONFIG_BCM_KF_ANDROID) && defined(CONFIG_BCM_ANDROID)
+
+		if (!reader->r_all)
+			reader->r_off = get_next_entry_by_uid(log,
+				reader->r_off, current_euid());
+
+#endif
 		if (log->w_off != reader->r_off)
+#if !defined(CONFIG_BCM_KF_ANDROID) || !defined(CONFIG_BCM_ANDROID)
 			ret = get_entry_len(log, reader->r_off);
+#else
+			ret = get_user_hdr_len(reader->r_ver) +
+				get_entry_msg_len(log, reader->r_off);
+#endif
 		else
 			ret = 0;
 		break;
@@ -541,11 +749,36 @@ static long logger_ioctl(struct file *file, unsigned int cmd, unsigned long arg)
 			ret = -EBADF;
 			break;
 		}
+#if defined(CONFIG_BCM_KF_ANDROID) && defined(CONFIG_BCM_ANDROID)
+		if (!(in_egroup_p(file->f_dentry->d_inode->i_gid) ||
+				capable(CAP_SYSLOG))) {
+			ret = -EPERM;
+			break;
+		}
+#endif
 		list_for_each_entry(reader, &log->readers, list)
 			reader->r_off = log->w_off;
 		log->head = log->w_off;
 		ret = 0;
 		break;
+#if defined(CONFIG_BCM_KF_ANDROID) && defined(CONFIG_BCM_ANDROID)
+	case LOGGER_GET_VERSION:
+		if (!(file->f_mode & FMODE_READ)) {
+			ret = -EBADF;
+			break;
+		}
+		reader = file->private_data;
+		ret = reader->r_ver;
+		break;
+	case LOGGER_SET_VERSION:
+		if (!(file->f_mode & FMODE_READ)) {
+			ret = -EBADF;
+			break;
+		}
+		reader = file->private_data;
+		ret = logger_set_version(reader, argp);
+		break;
+#endif
 	}
 
 	mutex_unlock(&log->mutex);

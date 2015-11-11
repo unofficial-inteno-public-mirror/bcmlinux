@@ -612,7 +612,15 @@ ehci_hub_status_data (struct usb_hcd *hcd, char *buf)
 			status = STS_PCD;
 		}
 	}
+#if !defined(CONFIG_BCM_KF_ANDROID) || !defined(CONFIG_BCM_ANDROID)
 	/* FIXME autosuspend idle root hubs */
+#else
+
+	/* If a resume is in progress, make sure it can finish */
+	if (ehci->resuming_ports)
+		mod_timer(&hcd->rh_timer, jiffies + msecs_to_jiffies(25));
+
+#endif
 	spin_unlock_irqrestore (&ehci->lock, flags);
 	return status ? retval : 0;
 }

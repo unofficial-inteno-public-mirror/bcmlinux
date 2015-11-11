@@ -82,6 +82,10 @@ static inline int is_vlan_dev(struct net_device *dev)
 }
 
 #define vlan_tx_tag_present(__skb)	((__skb)->vlan_tci & VLAN_TAG_PRESENT)
+#if defined(CONFIG_BCM_KF_ANDROID) && defined(CONFIG_BCM_ANDROID)
+#define vlan_tx_nonzero_tag_present(__skb) \
+	(vlan_tx_tag_present(__skb) && ((__skb)->vlan_tci & VLAN_VID_MASK))
+#endif
 #define vlan_tx_tag_get(__skb)		((__skb)->vlan_tci & ~VLAN_TAG_PRESENT)
 
 #if defined(CONFIG_VLAN_8021Q) || defined(CONFIG_VLAN_8021Q_MODULE)
@@ -91,7 +95,11 @@ extern struct net_device *__vlan_find_dev_deep(struct net_device *real_dev,
 extern struct net_device *vlan_dev_real_dev(const struct net_device *dev);
 extern u16 vlan_dev_vlan_id(const struct net_device *dev);
 
+#if !defined(CONFIG_BCM_KF_ANDROID) || !defined(CONFIG_BCM_ANDROID)
 extern bool vlan_do_receive(struct sk_buff **skb, bool last_handler);
+#else
+extern bool vlan_do_receive(struct sk_buff **skb);
+#endif
 extern struct sk_buff *vlan_untag(struct sk_buff *skb);
 
 extern int vlan_vid_add(struct net_device *dev, unsigned short vid);
@@ -120,10 +128,16 @@ static inline u16 vlan_dev_vlan_id(const struct net_device *dev)
 	return 0;
 }
 
+#if !defined(CONFIG_BCM_KF_ANDROID) || !defined(CONFIG_BCM_ANDROID)
 static inline bool vlan_do_receive(struct sk_buff **skb, bool last_handler)
+#else
+static inline bool vlan_do_receive(struct sk_buff **skb)
+#endif
 {
+#if !defined(CONFIG_BCM_KF_ANDROID) || !defined(CONFIG_BCM_ANDROID)
 	if (((*skb)->vlan_tci & VLAN_VID_MASK) && last_handler)
 		(*skb)->pkt_type = PACKET_OTHERHOST;
+#endif
 	return false;
 }
 
@@ -327,7 +341,11 @@ static inline void vlan_set_encap_proto(struct sk_buff *skb,
 					struct vlan_hdr *vhdr)
 {
 	__be16 proto;
+#if !defined(CONFIG_BCM_KF_ANDROID) || !defined(CONFIG_BCM_ANDROID)
 	unsigned char *rawp;
+#else
+	unsigned short *rawp;
+#endif
 
 	/*
 	 * Was a VLAN packet, grab the encapsulated protocol, which the layer
@@ -340,8 +358,13 @@ static inline void vlan_set_encap_proto(struct sk_buff *skb,
 		return;
 	}
 
+#if !defined(CONFIG_BCM_KF_ANDROID) || !defined(CONFIG_BCM_ANDROID)
 	rawp = skb->data;
 	if (*(unsigned short *) rawp == 0xFFFF)
+#else
+	rawp = (unsigned short *)(vhdr + 1);
+	if (*rawp == 0xFFFF)
+#endif
 		/*
 		 * This is a magic hack to spot IPX packets. Older Novell
 		 * breaks the protocol design and runs IPX over 802.3 without

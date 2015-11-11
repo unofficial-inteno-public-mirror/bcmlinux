@@ -527,8 +527,12 @@ static void addrconf_forward_change(struct net *net, __s32 newf)
 	struct net_device *dev;
 	struct inet6_dev *idev;
 
+#if !defined(CONFIG_BCM_KF_ANDROID) || !defined(CONFIG_BCM_ANDROID)
 	rcu_read_lock();
 	for_each_netdev_rcu(net, dev) {
+#else
+	for_each_netdev(net, dev) {
+#endif
 		idev = __in6_dev_get(dev);
 		if (idev) {
 			int changed = (!idev->cnf.forwarding) ^ (!newf);
@@ -537,7 +541,9 @@ static void addrconf_forward_change(struct net *net, __s32 newf)
 				dev_forward_change(idev);
 		}
 	}
+#if !defined(CONFIG_BCM_KF_ANDROID) || !defined(CONFIG_BCM_ANDROID)
 	rcu_read_unlock();
+#endif
 }
 
 static int addrconf_fixup_forwarding(struct ctl_table *table, int *p, int newf)
@@ -829,10 +835,26 @@ static void ipv6_del_addr(struct inet6_ifaddr *ifp)
 		struct in6_addr prefix;
 		struct rt6_info *rt;
 		struct net *net = dev_net(ifp->idev->dev);
-		ipv6_addr_prefix(&prefix, &ifp->addr, ifp->prefix_len);
-		rt = rt6_lookup(net, &prefix, NULL, ifp->idev->dev->ifindex, 1);
+#if defined(CONFIG_BCM_KF_ANDROID) && defined(CONFIG_BCM_ANDROID)
+		struct flowi6 fl6 = {};
 
+#endif
+		ipv6_addr_prefix(&prefix, &ifp->addr, ifp->prefix_len);
+#if !defined(CONFIG_BCM_KF_ANDROID) || !defined(CONFIG_BCM_ANDROID)
+		rt = rt6_lookup(net, &prefix, NULL, ifp->idev->dev->ifindex, 1);
+#else
+		fl6.flowi6_oif = ifp->idev->dev->ifindex;
+		fl6.daddr = prefix;
+		rt = (struct rt6_info *)ip6_route_lookup(net, &fl6,
+							 RT6_LOOKUP_F_IFACE);
+#endif
+
+#if !defined(CONFIG_BCM_KF_ANDROID) || !defined(CONFIG_BCM_ANDROID)
 		if (rt && addrconf_is_prefix_route(rt)) {
+#else
+		if (rt != net->ipv6.ip6_null_entry &&
+		    addrconf_is_prefix_route(rt)) {
+#endif
 			if (onlink == 0) {
 				ip6_del_rt(rt);
 				rt = NULL;
@@ -1766,7 +1788,11 @@ static struct rt6_info *addrconf_get_prefix_route(const struct in6_addr *pfx,
 			continue;
 		if ((rt->rt6i_flags & flags) != flags)
 			continue;
+#if !defined(CONFIG_BCM_KF_ANDROID) || !defined(CONFIG_BCM_ANDROID)
 		if ((noflags != 0) && ((rt->rt6i_flags & flags) != 0))
+#else
+		if ((rt->rt6i_flags & noflags) != 0)
+#endif
 			continue;
 		dst_hold(&rt->dst);
 		break;
@@ -3194,14 +3220,22 @@ static struct inet6_ifaddr *if6_get_first(struct seq_file *seq, loff_t pos)
 		struct hlist_node *n;
 		hlist_for_each_entry_rcu_bh(ifa, n, &inet6_addr_lst[state->bucket],
 					 addr_lst) {
+#if defined(CONFIG_BCM_KF_ANDROID) && defined(CONFIG_BCM_ANDROID)
+			if (!net_eq(dev_net(ifa->idev->dev), net))
+				continue;
+#endif
 			/* sync with offset */
 			if (p < state->offset) {
 				p++;
 				continue;
 			}
 			state->offset++;
+#if !defined(CONFIG_BCM_KF_ANDROID) || !defined(CONFIG_BCM_ANDROID)
 			if (net_eq(dev_net(ifa->idev->dev), net))
 				return ifa;
+#else
+			return ifa;
+#endif
 	}
 
 		/* prepare for next bucket */
@@ -3219,18 +3253,34 @@ static struct inet6_ifaddr *if6_get_next(struct seq_file *seq,
 	struct hlist_node *n = &ifa->addr_lst;
 
 	hlist_for_each_entry_continue_rcu_bh(ifa, n, addr_lst) {
+#if defined(CONFIG_BCM_KF_ANDROID) && defined(CONFIG_BCM_ANDROID)
+		if (!net_eq(dev_net(ifa->idev->dev), net))
+			continue;
+#endif
 		state->offset++;
+#if !defined(CONFIG_BCM_KF_ANDROID) || !defined(CONFIG_BCM_ANDROID)
 		if (net_eq(dev_net(ifa->idev->dev), net))
 			return ifa;
+#else
+		return ifa;
+#endif
 	}
 
 	while (++state->bucket < IN6_ADDR_HSIZE) {
 		state->offset = 0;
 		hlist_for_each_entry_rcu_bh(ifa, n,
 				     &inet6_addr_lst[state->bucket], addr_lst) {
+#if defined(CONFIG_BCM_KF_ANDROID) && defined(CONFIG_BCM_ANDROID)
+			if (!net_eq(dev_net(ifa->idev->dev), net))
+				continue;
+#endif
 			state->offset++;
+#if !defined(CONFIG_BCM_KF_ANDROID) || !defined(CONFIG_BCM_ANDROID)
 			if (net_eq(dev_net(ifa->idev->dev), net))
 				return ifa;
+#else
+			return ifa;
+#endif
 		}
 	}
 
@@ -4792,18 +4842,35 @@ static void addrconf_sysctl_unregister(struct inet6_dev *idev)
 
 static int __net_init addrconf_init_net(struct net *net)
 {
+#if !defined(CONFIG_BCM_KF_ANDROID) || !defined(CONFIG_BCM_ANDROID)
 	int err;
+#else
+	int err = -ENOMEM;
+#endif
 	struct ipv6_devconf *all, *dflt;
 
+#if !defined(CONFIG_BCM_KF_ANDROID) || !defined(CONFIG_BCM_ANDROID)
 	err = -ENOMEM;
 	all = &ipv6_devconf;
 	dflt = &ipv6_devconf_dflt;
+#else
+	all = kmemdup(&ipv6_devconf, sizeof(ipv6_devconf), GFP_KERNEL);
+	if (all == NULL)
+		goto err_alloc_all;
+#endif
 
+#if !defined(CONFIG_BCM_KF_ANDROID) || !defined(CONFIG_BCM_ANDROID)
 	if (!net_eq(net, &init_net)) {
 		all = kmemdup(all, sizeof(ipv6_devconf), GFP_KERNEL);
 		if (all == NULL)
 			goto err_alloc_all;
+#else
+	dflt = kmemdup(&ipv6_devconf_dflt, sizeof(ipv6_devconf_dflt), GFP_KERNEL);
+	if (dflt == NULL)
+		goto err_alloc_dflt;
+#endif
 
+#if !defined(CONFIG_BCM_KF_ANDROID) || !defined(CONFIG_BCM_ANDROID)
 		dflt = kmemdup(dflt, sizeof(ipv6_devconf_dflt), GFP_KERNEL);
 		if (dflt == NULL)
 			goto err_alloc_dflt;
@@ -4812,6 +4879,11 @@ static int __net_init addrconf_init_net(struct net *net)
 		dflt->autoconf = ipv6_defaults.autoconf;
 		dflt->disable_ipv6 = ipv6_defaults.disable_ipv6;
 	}
+#else
+	/* these will be inherited by all namespaces */
+	dflt->autoconf = ipv6_defaults.autoconf;
+	dflt->disable_ipv6 = ipv6_defaults.disable_ipv6;
+#endif
 
 	net->ipv6.devconf_all = all;
 	net->ipv6.devconf_dflt = dflt;

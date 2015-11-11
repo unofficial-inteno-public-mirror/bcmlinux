@@ -177,6 +177,9 @@ static int sco_connect(struct sock *sk)
 {
 	bdaddr_t *src = &bt_sk(sk)->src;
 	bdaddr_t *dst = &bt_sk(sk)->dst;
+#if defined(CONFIG_BCM_KF_ANDROID) && defined(CONFIG_BCM_ANDROID)
+	__u16 pkt_type = sco_pi(sk)->pkt_type;
+#endif
 	struct sco_conn *conn;
 	struct hci_conn *hcon;
 	struct hci_dev  *hdev;
@@ -192,10 +195,22 @@ static int sco_connect(struct sock *sk)
 
 	if (lmp_esco_capable(hdev) && !disable_esco)
 		type = ESCO_LINK;
+#if !defined(CONFIG_BCM_KF_ANDROID) || !defined(CONFIG_BCM_ANDROID)
 	else
+#else
+	else {
+#endif
 		type = SCO_LINK;
+#if defined(CONFIG_BCM_KF_ANDROID) && defined(CONFIG_BCM_ANDROID)
+		pkt_type &= SCO_ESCO_MASK;
+	}
+#endif
 
+#if !defined(CONFIG_BCM_KF_ANDROID) || !defined(CONFIG_BCM_ANDROID)
 	hcon = hci_connect(hdev, type, dst, BT_SECURITY_LOW, HCI_AT_NO_BONDING);
+#else
+	hcon = hci_connect(hdev, type, pkt_type, dst, BT_SECURITY_LOW, HCI_AT_NO_BONDING);
+#endif
 	if (IS_ERR(hcon)) {
 		err = PTR_ERR(hcon);
 		goto done;
@@ -378,6 +393,9 @@ static void __sco_sock_close(struct sock *sk)
 			sco_chan_del(sk, ECONNRESET);
 		break;
 
+#if defined(CONFIG_BCM_KF_ANDROID) && defined(CONFIG_BCM_ANDROID)
+	case BT_CONNECT2:
+#endif
 	case BT_CONNECT:
 	case BT_DISCONN:
 		sco_chan_del(sk, ECONNRESET);
@@ -462,18 +480,41 @@ static int sco_sock_create(struct net *net, struct socket *sock, int protocol,
 	return 0;
 }
 
+#if !defined(CONFIG_BCM_KF_ANDROID) || !defined(CONFIG_BCM_ANDROID)
 static int sco_sock_bind(struct socket *sock, struct sockaddr *addr, int addr_len)
+#else
+static int sco_sock_bind(struct socket *sock, struct sockaddr *addr, int alen)
+#endif
 {
+#if !defined(CONFIG_BCM_KF_ANDROID) || !defined(CONFIG_BCM_ANDROID)
 	struct sockaddr_sco *sa = (struct sockaddr_sco *) addr;
+#else
+	struct sockaddr_sco sa;
+#endif
 	struct sock *sk = sock->sk;
+#if !defined(CONFIG_BCM_KF_ANDROID) || !defined(CONFIG_BCM_ANDROID)
 	bdaddr_t *src = &sa->sco_bdaddr;
 	int err = 0;
+#else
+	bdaddr_t *src = &sa.sco_bdaddr;
+	int len, err = 0;
+#endif
 
+#if !defined(CONFIG_BCM_KF_ANDROID) || !defined(CONFIG_BCM_ANDROID)
 	BT_DBG("sk %p %s", sk, batostr(&sa->sco_bdaddr));
+#else
+	BT_DBG("sk %p %s", sk, batostr(&sa.sco_bdaddr));
+#endif
 
 	if (!addr || addr->sa_family != AF_BLUETOOTH)
 		return -EINVAL;
 
+#if defined(CONFIG_BCM_KF_ANDROID) && defined(CONFIG_BCM_ANDROID)
+	memset(&sa, 0, sizeof(sa));
+	len = min_t(unsigned int, sizeof(sa), alen);
+	memcpy(&sa, addr, len);
+
+#endif
 	lock_sock(sk);
 
 	if (sk->sk_state != BT_OPEN) {
@@ -487,7 +528,12 @@ static int sco_sock_bind(struct socket *sock, struct sockaddr *addr, int addr_le
 		err = -EADDRINUSE;
 	} else {
 		/* Save source address */
+#if !defined(CONFIG_BCM_KF_ANDROID) || !defined(CONFIG_BCM_ANDROID)
 		bacpy(&bt_sk(sk)->src, &sa->sco_bdaddr);
+#else
+		bacpy(&bt_sk(sk)->src, &sa.sco_bdaddr);
+		sco_pi(sk)->pkt_type = sa.sco_pkt_type;
+#endif
 		sk->sk_state = BT_BOUND;
 	}
 
@@ -500,27 +546,61 @@ done:
 
 static int sco_sock_connect(struct socket *sock, struct sockaddr *addr, int alen, int flags)
 {
+#if !defined(CONFIG_BCM_KF_ANDROID) || !defined(CONFIG_BCM_ANDROID)
 	struct sockaddr_sco *sa = (struct sockaddr_sco *) addr;
+#endif
 	struct sock *sk = sock->sk;
+#if !defined(CONFIG_BCM_KF_ANDROID) || !defined(CONFIG_BCM_ANDROID)
 	int err = 0;
 
+#else
+	struct sockaddr_sco sa;
+	int len, err = 0;
+#endif
 
 	BT_DBG("sk %p", sk);
 
+#if !defined(CONFIG_BCM_KF_ANDROID) || !defined(CONFIG_BCM_ANDROID)
 	if (alen < sizeof(struct sockaddr_sco) ||
 	    addr->sa_family != AF_BLUETOOTH)
+#else
+	if (!addr || addr->sa_family != AF_BLUETOOTH)
+#endif
 		return -EINVAL;
 
+#if !defined(CONFIG_BCM_KF_ANDROID) || !defined(CONFIG_BCM_ANDROID)
 	if (sk->sk_state != BT_OPEN && sk->sk_state != BT_BOUND)
 		return -EBADFD;
 
 	if (sk->sk_type != SOCK_SEQPACKET)
 		return -EINVAL;
+#else
+	memset(&sa, 0, sizeof(sa));
+	len = min_t(unsigned int, sizeof(sa), alen);
+	memcpy(&sa, addr, len);
+#endif
 
 	lock_sock(sk);
 
+#if defined(CONFIG_BCM_KF_ANDROID) && defined(CONFIG_BCM_ANDROID)
+	if (sk->sk_type != SOCK_SEQPACKET) {
+		err = -EINVAL;
+		goto done;
+	}
+
+	if (sk->sk_state != BT_OPEN && sk->sk_state != BT_BOUND) {
+		err = -EBADFD;
+		goto done;
+	}
+
+#endif
 	/* Set destination address and psm */
+#if !defined(CONFIG_BCM_KF_ANDROID) || !defined(CONFIG_BCM_ANDROID)
 	bacpy(&bt_sk(sk)->dst, &sa->sco_bdaddr);
+#else
+	bacpy(&bt_sk(sk)->dst, &sa.sco_bdaddr);
+	sco_pi(sk)->pkt_type = sa.sco_pkt_type;
+#endif
 
 	err = sco_connect(sk);
 	if (err)
@@ -627,6 +707,9 @@ static int sco_sock_getname(struct socket *sock, struct sockaddr *addr, int *len
 		bacpy(&sa->sco_bdaddr, &bt_sk(sk)->dst);
 	else
 		bacpy(&sa->sco_bdaddr, &bt_sk(sk)->src);
+#if defined(CONFIG_BCM_KF_ANDROID) && defined(CONFIG_BCM_ANDROID)
+	sa->sco_pkt_type = sco_pi(sk)->pkt_type;
+#endif
 
 	return 0;
 }

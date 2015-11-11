@@ -2096,8 +2096,17 @@ int hugetlb_report_node_meminfo(int nid, char *buf)
 /* Return the number pages of memory we physically have, in PAGE_SIZE units. */
 unsigned long hugetlb_total_pages(void)
 {
+#if !defined(CONFIG_BCM_KF_ANDROID) || !defined(CONFIG_BCM_ANDROID)
 	struct hstate *h = &default_hstate;
 	return h->nr_huge_pages * pages_per_huge_page(h);
+#else
+	struct hstate *h;
+	unsigned long nr_total_pages = 0;
+
+	for_each_hstate(h)
+		nr_total_pages += h->nr_huge_pages * pages_per_huge_page(h);
+	return nr_total_pages;
+#endif
 }
 
 static int hugetlb_acct_memory(struct hstate *h, long delta)
@@ -2431,7 +2440,12 @@ static int unmap_ref_private(struct mm_struct *mm, struct vm_area_struct *vma,
 	 * from page cache lookup which is in HPAGE_SIZE units.
 	 */
 	address = address & huge_page_mask(h);
+#if !defined(CONFIG_BCM_KF_ANDROID) || !defined(CONFIG_BCM_ANDROID)
 	pgoff = vma_hugecache_offset(h, vma, address);
+#else
+	pgoff = ((address - vma->vm_start) >> PAGE_SHIFT) +
+			vma->vm_pgoff;
+#endif
 	mapping = vma->vm_file->f_dentry->d_inode->i_mapping;
 
 	/*

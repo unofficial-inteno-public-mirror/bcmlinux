@@ -1258,11 +1258,18 @@ static void l2tp_tunnel_free(struct l2tp_tunnel *tunnel)
 	/* Remove from tunnel list */
 	spin_lock_bh(&pn->l2tp_tunnel_list_lock);
 	list_del_rcu(&tunnel->list);
+#if defined(CONFIG_BCM_KF_ANDROID) && defined(CONFIG_BCM_ANDROID)
+	kfree_rcu(tunnel, rcu);
+#endif
 	spin_unlock_bh(&pn->l2tp_tunnel_list_lock);
+#if !defined(CONFIG_BCM_KF_ANDROID) || !defined(CONFIG_BCM_ANDROID)
 	synchronize_rcu();
+#endif
 
 	atomic_dec(&l2tp_tunnel_count);
+#if !defined(CONFIG_BCM_KF_ANDROID) || !defined(CONFIG_BCM_ANDROID)
 	kfree(tunnel);
+#endif
 }
 
 /* Create a socket for the tunnel, if one isn't set up by

@@ -68,6 +68,9 @@ int writeback_in_progress(struct backing_dev_info *bdi)
 {
 	return test_bit(BDI_writeback_running, &bdi->state);
 }
+#if defined(CONFIG_BCM_KF_ANDROID) && defined(CONFIG_BCM_ANDROID)
+EXPORT_SYMBOL(writeback_in_progress);
+#endif
 
 static inline struct backing_dev_info *inode_to_bdi(struct inode *inode)
 {
@@ -1082,7 +1085,11 @@ void __mark_inode_dirty(struct inode *inode, int flags)
 	if ((inode->i_state & flags) == flags)
 		return;
 
+#if !defined(CONFIG_BCM_KF_ANDROID) || !defined(CONFIG_BCM_ANDROID)
 	if (unlikely(block_dump))
+#else
+	if (unlikely(block_dump > 1))
+#endif
 		block_dump___mark_inode_dirty(inode);
 
 	spin_lock(&inode->i_lock);

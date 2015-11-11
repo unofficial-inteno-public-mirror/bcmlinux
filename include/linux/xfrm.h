@@ -84,6 +84,10 @@ struct xfrm_replay_state {
 	__u32	bitmap;
 };
 
+#if defined(CONFIG_BCM_KF_ANDROID) && defined(CONFIG_BCM_ANDROID)
+#define XFRMA_REPLAY_ESN_MAX	4096
+
+#endif
 struct xfrm_replay_state_esn {
 	unsigned int	bmp_len;
 	__u32		oseq;

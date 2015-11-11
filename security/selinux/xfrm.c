@@ -310,7 +310,11 @@ int selinux_xfrm_policy_clone(struct xfrm_sec_ctx *old_ctx,
 
 	if (old_ctx) {
 		new_ctx = kmalloc(sizeof(*old_ctx) + old_ctx->ctx_len,
+#if !defined(CONFIG_BCM_KF_ANDROID) || !defined(CONFIG_BCM_ANDROID)
 				  GFP_KERNEL);
+#else
+				  GFP_ATOMIC);
+#endif
 		if (!new_ctx)
 			return -ENOMEM;
 

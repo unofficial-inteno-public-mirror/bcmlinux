@@ -1138,8 +1138,13 @@ int queue_delayed_work_on(int cpu, struct workqueue_struct *wq,
 	if (!test_and_set_bit(WORK_STRUCT_PENDING_BIT, work_data_bits(work))) {
 		unsigned int lcpu;
 
+#if !defined(CONFIG_BCM_KF_ANDROID) || !defined(CONFIG_BCM_ANDROID)
 		BUG_ON(timer_pending(timer));
 		BUG_ON(!list_empty(&work->entry));
+#else
+		WARN_ON_ONCE(timer_pending(timer));
+		WARN_ON_ONCE(!list_empty(&work->entry));
+#endif
 
 		timer_stats_timer_set_start_info(&dwork->timer);
 
@@ -1856,7 +1861,13 @@ __acquires(&gcwq->lock)
 
 	spin_unlock_irq(&gcwq->lock);
 
+#if defined(CONFIG_BCM_KF_ANDROID) && defined(CONFIG_BCM_ANDROID)
+	smp_wmb();	/* paired with test_and_set_bit(PENDING) */
+#endif
 	work_clear_pending(work);
+#if defined(CONFIG_BCM_KF_ANDROID) && defined(CONFIG_BCM_ANDROID)
+
+#endif
 	lock_map_acquire_read(&cwq->wq->lockdep_map);
 	lock_map_acquire(&lockdep_map);
 	trace_workqueue_execute_start(work);
@@ -2040,8 +2051,16 @@ static int rescuer_thread(void *__wq)
 repeat:
 	set_current_state(TASK_INTERRUPTIBLE);
 
+#if !defined(CONFIG_BCM_KF_ANDROID) || !defined(CONFIG_BCM_ANDROID)
 	if (kthread_should_stop())
+#else
+	if (kthread_should_stop()) {
+		__set_current_state(TASK_RUNNING);
+#endif
 		return 0;
+#if defined(CONFIG_BCM_KF_ANDROID) && defined(CONFIG_BCM_ANDROID)
+	}
+#endif
 
 	/*
 	 * See whether any cpu is asking for help.  Unbounded
@@ -3435,14 +3454,23 @@ static int __cpuinit trustee_thread(void *__gcwq)
 
 	for_each_busy_worker(worker, i, pos, gcwq) {
 		struct work_struct *rebind_work = &worker->rebind_work;
+#if defined(CONFIG_BCM_KF_ANDROID) && defined(CONFIG_BCM_ANDROID)
+		unsigned long worker_flags = worker->flags;
+#endif
 
 		/*
 		 * Rebind_work may race with future cpu hotplug
 		 * operations.  Use a separate flag to mark that
 		 * rebinding is scheduled.
 		 */
+#if !defined(CONFIG_BCM_KF_ANDROID) || !defined(CONFIG_BCM_ANDROID)
 		worker->flags |= WORKER_REBIND;
 		worker->flags &= ~WORKER_ROGUE;
+#else
+		worker_flags |= WORKER_REBIND;
+		worker_flags &= ~WORKER_ROGUE;
+		ACCESS_ONCE(worker->flags) = worker_flags;
+#endif
 
 		/* queue rebind_work, wq doesn't matter, use the default one */
 		if (test_and_set_bit(WORK_STRUCT_PENDING_BIT,
@@ -3632,18 +3660,33 @@ static int __devinit workqueue_cpu_down_callback(struct notifier_block *nfb,
 #ifdef CONFIG_SMP
 
 struct work_for_cpu {
+#if !defined(CONFIG_BCM_KF_ANDROID) || !defined(CONFIG_BCM_ANDROID)
 	struct completion completion;
+#else
+	struct work_struct work;
+#endif
 	long (*fn)(void *);
 	void *arg;
 	long ret;
 };
 
+#if !defined(CONFIG_BCM_KF_ANDROID) || !defined(CONFIG_BCM_ANDROID)
 static int do_work_for_cpu(void *_wfc)
+#else
+static void work_for_cpu_fn(struct work_struct *work)
+#endif
 {
+#if !defined(CONFIG_BCM_KF_ANDROID) || !defined(CONFIG_BCM_ANDROID)
 	struct work_for_cpu *wfc = _wfc;
+#else
+	struct work_for_cpu *wfc = container_of(work, struct work_for_cpu, work);
+
+#endif
 	wfc->ret = wfc->fn(wfc->arg);
+#if !defined(CONFIG_BCM_KF_ANDROID) || !defined(CONFIG_BCM_ANDROID)
 	complete(&wfc->completion);
 	return 0;
+#endif
 }
 
 /**
@@ -3658,19 +3701,29 @@ static int do_work_for_cpu(void *_wfc)
  */
 long work_on_cpu(unsigned int cpu, long (*fn)(void *), void *arg)
 {
+#if !defined(CONFIG_BCM_KF_ANDROID) || !defined(CONFIG_BCM_ANDROID)
 	struct task_struct *sub_thread;
 	struct work_for_cpu wfc = {
 		.completion = COMPLETION_INITIALIZER_ONSTACK(wfc.completion),
 		.fn = fn,
 		.arg = arg,
 	};
+#else
+	struct work_for_cpu wfc = { .fn = fn, .arg = arg };
+#endif
 
+#if !defined(CONFIG_BCM_KF_ANDROID) || !defined(CONFIG_BCM_ANDROID)
 	sub_thread = kthread_create(do_work_for_cpu, &wfc, "work_for_cpu");
 	if (IS_ERR(sub_thread))
 		return PTR_ERR(sub_thread);
 	kthread_bind(sub_thread, cpu);
 	wake_up_process(sub_thread);
 	wait_for_completion(&wfc.completion);
+#else
+	INIT_WORK_ONSTACK(&wfc.work, work_for_cpu_fn);
+	schedule_work_on(cpu, &wfc.work);
+	flush_work(&wfc.work);
+#endif
 	return wfc.ret;
 }
 EXPORT_SYMBOL_GPL(work_on_cpu);

@@ -37,6 +37,9 @@ static void _drbd_start_io_acct(struct drbd_conf *mdev, struct drbd_request *req
 	const int rw = bio_data_dir(bio);
 	int cpu;
 	cpu = part_stat_lock();
+#if defined(CONFIG_BCM_KF_ANDROID) && defined(CONFIG_BCM_ANDROID)
+	part_round_stats(cpu, &mdev->vdisk->part0);
+#endif
 	part_stat_inc(cpu, &mdev->vdisk->part0, ios[rw]);
 	part_stat_add(cpu, &mdev->vdisk->part0, sectors[rw], bio_sectors(bio));
 	part_inc_in_flight(&mdev->vdisk->part0, rw);

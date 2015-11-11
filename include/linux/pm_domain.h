@@ -14,6 +14,9 @@
 #include <linux/pm.h>
 #include <linux/err.h>
 #include <linux/of.h>
+#if defined(CONFIG_BCM_KF_ANDROID) && defined(CONFIG_BCM_ANDROID)
+#include <linux/notifier.h>
+#endif
 
 enum gpd_status {
 	GPD_STATE_ACTIVE = 0,	/* PM domain is active */
@@ -70,9 +73,16 @@ struct generic_pm_domain {
 	int (*power_on)(struct generic_pm_domain *domain);
 	s64 power_on_latency_ns;
 	struct gpd_dev_ops dev_ops;
+#if !defined(CONFIG_BCM_KF_ANDROID) || !defined(CONFIG_BCM_ANDROID)
 	s64 break_even_ns;	/* Power break even for the entire domain. */
+#endif
 	s64 max_off_time_ns;	/* Maximum allowed "suspended" time. */
+#if !defined(CONFIG_BCM_KF_ANDROID) || !defined(CONFIG_BCM_ANDROID)
 	ktime_t power_off_time;
+#else
+	bool max_off_time_changed;
+	bool cached_power_down_ok;
+#endif
 	struct device_node *of_node; /* Node in device tree */
 };
 
@@ -93,13 +103,23 @@ struct gpd_timing_data {
 	s64 start_latency_ns;
 	s64 save_state_latency_ns;
 	s64 restore_state_latency_ns;
+#if !defined(CONFIG_BCM_KF_ANDROID) || !defined(CONFIG_BCM_ANDROID)
 	s64 break_even_ns;
+#else
+	s64 effective_constraint_ns;
+	bool constraint_changed;
+	bool cached_stop_ok;
+#endif
 };
 
 struct generic_pm_domain_data {
 	struct pm_domain_data base;
 	struct gpd_dev_ops ops;
 	struct gpd_timing_data td;
+#if defined(CONFIG_BCM_KF_ANDROID) && defined(CONFIG_BCM_ANDROID)
+	struct notifier_block nb;
+	struct mutex lock;
+#endif
 	bool need_restore;
 	bool always_on;
 };
@@ -141,6 +161,9 @@ static inline int pm_genpd_of_add_device(struct device_node *genpd_node,
 extern int pm_genpd_remove_device(struct generic_pm_domain *genpd,
 				  struct device *dev);
 extern void pm_genpd_dev_always_on(struct device *dev, bool val);
+#if defined(CONFIG_BCM_KF_ANDROID) && defined(CONFIG_BCM_ANDROID)
+extern void pm_genpd_dev_need_restore(struct device *dev, bool val);
+#endif
 extern int pm_genpd_add_subdomain(struct generic_pm_domain *genpd,
 				  struct generic_pm_domain *new_subdomain);
 extern int pm_genpd_remove_subdomain(struct generic_pm_domain *genpd,
@@ -184,6 +207,9 @@ static inline int pm_genpd_remove_device(struct generic_pm_domain *genpd,
 	return -ENOSYS;
 }
 static inline void pm_genpd_dev_always_on(struct device *dev, bool val) {}
+#if defined(CONFIG_BCM_KF_ANDROID) && defined(CONFIG_BCM_ANDROID)
+static inline void pm_genpd_dev_need_restore(struct device *dev, bool val) {}
+#endif
 static inline int pm_genpd_add_subdomain(struct generic_pm_domain *genpd,
 					 struct generic_pm_domain *new_sd)
 {

@@ -168,6 +168,9 @@ static void destroy_serial(struct kref *kref)
 		}
 	}
 
+#if defined(CONFIG_BCM_KF_ANDROID) && defined(CONFIG_BCM_ANDROID)
+	usb_put_intf(serial->interface);
+#endif
 	usb_put_dev(serial->dev);
 	kfree(serial);
 }
@@ -625,7 +628,11 @@ static struct usb_serial *create_serial(struct usb_device *dev,
 	}
 	serial->dev = usb_get_dev(dev);
 	serial->type = driver;
+#if !defined(CONFIG_BCM_KF_ANDROID) || !defined(CONFIG_BCM_ANDROID)
 	serial->interface = interface;
+#else
+	serial->interface = usb_get_intf(interface);
+#endif
 	kref_init(&serial->kref);
 	mutex_init(&serial->disc_mutex);
 	serial->minor = SERIAL_TTY_NO_MINOR;
@@ -699,10 +706,30 @@ static int serial_carrier_raised(struct tty_port *port)
 static void serial_dtr_rts(struct tty_port *port, int on)
 {
 	struct usb_serial_port *p = container_of(port, struct usb_serial_port, port);
+#if !defined(CONFIG_BCM_KF_ANDROID) || !defined(CONFIG_BCM_ANDROID)
 	struct usb_serial_driver *drv = p->serial->type;
+#else
+	struct usb_serial *serial = p->serial;
+	struct usb_serial_driver *drv = serial->type;
+#endif
 
+#if !defined(CONFIG_BCM_KF_ANDROID) || !defined(CONFIG_BCM_ANDROID)
 	if (drv->dtr_rts)
+#else
+	if (!drv->dtr_rts)
+		return;
+	/*
+	 * Work-around bug in the tty-layer which can result in dtr_rts
+	 * being called after a disconnect (and tty_unregister_device
+	 * has returned). Remove once bug has been squashed.
+	 */
+	mutex_lock(&serial->disc_mutex);
+	if (!serial->disconnected)
+#endif
 		drv->dtr_rts(p, on);
+#if defined(CONFIG_BCM_KF_ANDROID) && defined(CONFIG_BCM_ANDROID)
+	mutex_unlock(&serial->disc_mutex);
+#endif
 }
 
 static const struct tty_port_operations serial_port_ops = {
@@ -768,7 +795,11 @@ int usb_serial_probe(struct usb_interface *interface,
 
 		if (retval) {
 			dbg("sub driver rejected device");
+#if !defined(CONFIG_BCM_KF_ANDROID) || !defined(CONFIG_BCM_ANDROID)
 			kfree(serial);
+#else
+			usb_serial_put(serial);
+#endif
 			module_put(type->driver.owner);
 			return retval;
 		}
@@ -840,7 +871,11 @@ int usb_serial_probe(struct usb_interface *interface,
 		 */
 		if (num_bulk_in == 0 || num_bulk_out == 0) {
 			dev_info(&interface->dev, "PL-2303 hack: descriptors matched but endpoints did not\n");
+#if !defined(CONFIG_BCM_KF_ANDROID) || !defined(CONFIG_BCM_ANDROID)
 			kfree(serial);
+#else
+			usb_serial_put(serial);
+#endif
 			module_put(type->driver.owner);
 			return -ENODEV;
 		}
@@ -854,7 +889,11 @@ int usb_serial_probe(struct usb_interface *interface,
 		if (num_ports == 0) {
 			dev_err(&interface->dev,
 			    "Generic device with no bulk out, not allowed.\n");
+#if !defined(CONFIG_BCM_KF_ANDROID) || !defined(CONFIG_BCM_ANDROID)
 			kfree(serial);
+#else
+			usb_serial_put(serial);
+#endif
 			module_put(type->driver.owner);
 			return -EIO;
 		}

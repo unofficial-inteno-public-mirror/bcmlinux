@@ -506,10 +506,18 @@ static int zerocopy_sg_from_iovec(struct sk_buff *skb, const struct iovec *from,
 		if (copy > size) {
 			++from;
 			--count;
+#if !defined(CONFIG_BCM_KF_ANDROID) || !defined(CONFIG_BCM_ANDROID)
 		}
+#else
+			offset = 0;
+		} else
+			offset += size;
+#endif
 		copy -= size;
 		offset1 += size;
+#if !defined(CONFIG_BCM_KF_ANDROID) || !defined(CONFIG_BCM_ANDROID)
 		offset = 0;
+#endif
 	}
 
 	if (len == offset1)
@@ -519,25 +527,53 @@ static int zerocopy_sg_from_iovec(struct sk_buff *skb, const struct iovec *from,
 		struct page *page[MAX_SKB_FRAGS];
 		int num_pages;
 		unsigned long base;
+#if defined(CONFIG_BCM_KF_ANDROID) && defined(CONFIG_BCM_ANDROID)
+		unsigned long truesize;
+#endif
 
+#if !defined(CONFIG_BCM_KF_ANDROID) || !defined(CONFIG_BCM_ANDROID)
 		len = from->iov_len - offset1;
+#else
+		len = from->iov_len - offset;
+#endif
 		if (!len) {
+#if !defined(CONFIG_BCM_KF_ANDROID) || !defined(CONFIG_BCM_ANDROID)
 			offset1 = 0;
+#else
+			offset = 0;
+#endif
 			++from;
 			continue;
 		}
+#if !defined(CONFIG_BCM_KF_ANDROID) || !defined(CONFIG_BCM_ANDROID)
 		base = (unsigned long)from->iov_base + offset1;
+#else
+		base = (unsigned long)from->iov_base + offset;
+#endif
 		size = ((base & ~PAGE_MASK) + len + ~PAGE_MASK) >> PAGE_SHIFT;
 		if (i + size > MAX_SKB_FRAGS)
 			return -EMSGSIZE;
 		num_pages = get_user_pages_fast(base, size, 0, &page[i]);
+#if !defined(CONFIG_BCM_KF_ANDROID) || !defined(CONFIG_BCM_ANDROID)
 		if (num_pages != size)
 			/* put_page is in skb free */
 			return -EFAULT;
+#else
+		if (num_pages != size) {
+			for (i = 0; i < num_pages; i++)
+				put_page(page[i]);
+		}
+		truesize = size * PAGE_SIZE;
+#endif
 		skb->data_len += len;
 		skb->len += len;
+#if !defined(CONFIG_BCM_KF_ANDROID) || !defined(CONFIG_BCM_ANDROID)
 		skb->truesize += len;
 		atomic_add(len, &skb->sk->sk_wmem_alloc);
+#else
+		skb->truesize += truesize;
+		atomic_add(truesize, &skb->sk->sk_wmem_alloc);
+#endif
 		while (len) {
 			int off = base & ~PAGE_MASK;
 			int size = min_t(int, len, PAGE_SIZE - off);
@@ -548,7 +584,11 @@ static int zerocopy_sg_from_iovec(struct sk_buff *skb, const struct iovec *from,
 			len -= size;
 			i++;
 		}
+#if !defined(CONFIG_BCM_KF_ANDROID) || !defined(CONFIG_BCM_ANDROID)
 		offset1 = 0;
+#else
+		offset = 0;
+#endif
 		++from;
 	}
 	return 0;
@@ -712,10 +752,18 @@ static ssize_t macvtap_get_user(struct macvtap_queue *q, struct msghdr *m,
 	if (!skb)
 		goto err;
 
+#if !defined(CONFIG_BCM_KF_ANDROID) || !defined(CONFIG_BCM_ANDROID)
 	if (zerocopy) {
+#else
+	if (zerocopy)
+#endif
 		err = zerocopy_sg_from_iovec(skb, iv, vnet_hdr_len, count);
+#if !defined(CONFIG_BCM_KF_ANDROID) || !defined(CONFIG_BCM_ANDROID)
 		skb_shinfo(skb)->tx_flags |= SKBTX_DEV_ZEROCOPY;
 	} else
+#else
+	else
+#endif
 		err = skb_copy_datagram_from_iovec(skb, 0, iv, vnet_hdr_len,
 						   len);
 	if (err)
@@ -734,8 +782,16 @@ static ssize_t macvtap_get_user(struct macvtap_queue *q, struct msghdr *m,
 	rcu_read_lock_bh();
 	vlan = rcu_dereference_bh(q->vlan);
 	/* copy skb_ubuf_info for callback when skb has no error */
+#if !defined(CONFIG_BCM_KF_ANDROID) || !defined(CONFIG_BCM_ANDROID)
 	if (zerocopy)
+#else
+	if (zerocopy) {
+#endif
 		skb_shinfo(skb)->destructor_arg = m->msg_control;
+#if defined(CONFIG_BCM_KF_ANDROID) && defined(CONFIG_BCM_ANDROID)
+		skb_shinfo(skb)->tx_flags |= SKBTX_DEV_ZEROCOPY;
+	}
+#endif
 	if (vlan)
 		macvlan_start_xmit(skb, vlan->dev);
 	else

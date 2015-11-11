@@ -547,7 +547,11 @@ struct sk_buff {
 	union {
 		__u32		mark;
 		__u32		dropcount;
+#if !defined(CONFIG_BCM_KF_ANDROID) || !defined(CONFIG_BCM_ANDROID)
 		__u32		avail_size;
+#else
+		__u32		reserved_tailroom;
+#endif
 		void		*queue;
 	};
 	union {
@@ -717,7 +721,11 @@ struct sk_buff {
 	union {
 		__u32		mark;
 		__u32		dropcount;
+#if !defined(CONFIG_BCM_KF_ANDROID) || !defined(CONFIG_BCM_ANDROID)
 		__u32		avail_size;
+#else
+		__u32		reserved_tailroom;
+#endif
 	};
 #endif /* CONFIG_BCM_KF_NBUFF */
 
@@ -1753,7 +1761,14 @@ static inline int skb_tailroom(const struct sk_buff *skb)
  */
 static inline int skb_availroom(const struct sk_buff *skb)
 {
+#if !defined(CONFIG_BCM_KF_ANDROID) || !defined(CONFIG_BCM_ANDROID)
 	return skb_is_nonlinear(skb) ? 0 : skb->avail_size - skb->len;
+#else
+	if (skb_is_nonlinear(skb))
+		return 0;
+
+	return skb->end - skb->tail - skb->reserved_tailroom;
+#endif
 }
 
 /**

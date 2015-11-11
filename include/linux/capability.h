@@ -360,8 +360,17 @@ struct cpu_vfs_cap_data {
 
 #define CAP_WAKE_ALARM            35
 
+#if defined(CONFIG_BCM_KF_ANDROID) && defined(CONFIG_BCM_ANDROID)
+/* Allow preventing system suspends while epoll events are pending */
+#endif
 
+#if !defined(CONFIG_BCM_KF_ANDROID) || !defined(CONFIG_BCM_ANDROID)
 #define CAP_LAST_CAP         CAP_WAKE_ALARM
+#else
+#define CAP_EPOLLWAKEUP      36
+
+#define CAP_LAST_CAP         CAP_EPOLLWAKEUP
+#endif
 
 #define cap_valid(x) ((x) >= 0 && (x) <= CAP_LAST_CAP)
 

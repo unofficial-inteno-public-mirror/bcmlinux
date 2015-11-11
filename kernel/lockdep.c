@@ -4046,7 +4046,11 @@ void debug_check_no_locks_freed(const void *mem_from, unsigned long mem_len)
 }
 EXPORT_SYMBOL_GPL(debug_check_no_locks_freed);
 
+#if !defined(CONFIG_BCM_KF_ANDROID) || !defined(CONFIG_BCM_ANDROID)
 static void print_held_locks_bug(struct task_struct *curr)
+#else
+static void print_held_locks_bug(void)
+#endif
 {
 	if (!debug_locks_off())
 		return;
@@ -4055,22 +4059,43 @@ static void print_held_locks_bug(struct task_struct *curr)
 
 	printk("\n");
 	printk("=====================================\n");
+#if !defined(CONFIG_BCM_KF_ANDROID) || !defined(CONFIG_BCM_ANDROID)
 	printk("[ BUG: lock held at task exit time! ]\n");
+#else
+	printk("[ BUG: %s/%d still has locks held! ]\n",
+	       current->comm, task_pid_nr(current));
+#endif
 	print_kernel_ident();
 	printk("-------------------------------------\n");
+#if !defined(CONFIG_BCM_KF_ANDROID) || !defined(CONFIG_BCM_ANDROID)
 	printk("%s/%d is exiting with locks still held!\n",
 		curr->comm, task_pid_nr(curr));
 	lockdep_print_held_locks(curr);
 
+#else
+	lockdep_print_held_locks(current);
+#endif
 	printk("\nstack backtrace:\n");
 	dump_stack();
 }
 
+#if !defined(CONFIG_BCM_KF_ANDROID) || !defined(CONFIG_BCM_ANDROID)
 void debug_check_no_locks_held(struct task_struct *task)
+#else
+void debug_check_no_locks_held(void)
+#endif
 {
+#if !defined(CONFIG_BCM_KF_ANDROID) || !defined(CONFIG_BCM_ANDROID)
 	if (unlikely(task->lockdep_depth > 0))
 		print_held_locks_bug(task);
+#else
+	if (unlikely(current->lockdep_depth > 0))
+		print_held_locks_bug();
+#endif
 }
+#if defined(CONFIG_BCM_KF_ANDROID) && defined(CONFIG_BCM_ANDROID)
+EXPORT_SYMBOL_GPL(debug_check_no_locks_held);
+#endif
 
 void debug_show_all_locks(void)
 {

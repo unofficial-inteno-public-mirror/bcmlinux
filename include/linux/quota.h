@@ -414,10 +414,18 @@ struct quota_module_name {
 	char *qm_mod_name;
 };
 
+#if !defined(CONFIG_BCM_KF_ANDROID) || !defined(CONFIG_BCM_ANDROID)
 #define INIT_QUOTA_MODULE_NAMES {\
 	{QFMT_VFS_OLD, "quota_v1"},\
 	{QFMT_VFS_V0, "quota_v2"},\
 	{0, NULL}}
+#else
+#define INIT_QUOTA_MODULE_NAMES {\
+	{QFMT_VFS_OLD, "quota_v1"},\
+	{QFMT_VFS_V0, "quota_v2"},\
+	{QFMT_VFS_V1, "quota_v2"},\
+	{0, NULL}}
+#endif
 
 #endif /* __KERNEL__ */
 #endif /* _QUOTA_ */

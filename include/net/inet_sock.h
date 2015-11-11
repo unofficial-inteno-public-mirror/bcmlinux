@@ -202,6 +202,9 @@ static inline void inet_sk_copy_descendant(struct sock *sk_to,
 extern int inet_sk_rebuild_header(struct sock *sk);
 
 extern u32 inet_ehash_secret;
+#if defined(CONFIG_BCM_KF_ANDROID) && defined(CONFIG_BCM_ANDROID)
+extern u32 ipv6_hash_secret;
+#endif
 extern void build_ehash_secret(void);
 
 static inline unsigned int inet_ehashfn(struct net *net,

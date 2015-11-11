@@ -552,8 +552,12 @@ int wiphy_register(struct wiphy *wiphy)
 		for (i = 0; i < sband->n_channels; i++) {
 			sband->channels[i].orig_flags =
 				sband->channels[i].flags;
+#if !defined(CONFIG_BCM_KF_ANDROID) || !defined(CONFIG_BCM_ANDROID)
 			sband->channels[i].orig_mag =
 				sband->channels[i].max_antenna_gain;
+#else
+			sband->channels[i].orig_mag = INT_MAX;
+#endif
 			sband->channels[i].orig_mpwr =
 				sband->channels[i].max_power;
 			sband->channels[i].band = band;

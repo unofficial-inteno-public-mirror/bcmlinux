@@ -143,15 +143,19 @@ autogroup_move_group(struct task_struct *p, struct autogroup *ag)
 
 	p->signal->autogroup = autogroup_kref_get(ag);
 
+#if !defined(CONFIG_BCM_KF_ANDROID) || !defined(CONFIG_BCM_ANDROID)
 	if (!ACCESS_ONCE(sysctl_sched_autogroup_enabled))
 		goto out;
 
+#endif
 	t = p;
 	do {
 		sched_move_task(t);
 	} while_each_thread(p, t);
 
+#if !defined(CONFIG_BCM_KF_ANDROID) || !defined(CONFIG_BCM_ANDROID)
 out:
+#endif
 	unlock_task_sighand(p, &flags);
 	autogroup_kref_put(prev);
 }

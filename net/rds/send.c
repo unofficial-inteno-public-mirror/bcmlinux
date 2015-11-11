@@ -1122,7 +1122,11 @@ rds_send_pong(struct rds_connection *conn, __be16 dport)
 	rds_stats_inc(s_send_pong);
 
 	if (!test_bit(RDS_LL_SEND_FULL, &conn->c_flags))
+#if !defined(CONFIG_BCM_KF_ANDROID) || !defined(CONFIG_BCM_ANDROID)
 		rds_send_xmit(conn);
+#else
+		queue_delayed_work(rds_wq, &conn->c_send_w, 0);
+#endif
 
 	rds_message_put(rm);
 	return 0;

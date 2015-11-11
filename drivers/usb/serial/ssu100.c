@@ -532,19 +532,35 @@ static void ssu100_dtr_rts(struct usb_serial_port *port, int on)
 
 	dbg("%s\n", __func__);
 
+#if !defined(CONFIG_BCM_KF_ANDROID) || !defined(CONFIG_BCM_ANDROID)
 	mutex_lock(&port->serial->disc_mutex);
 	if (!port->serial->disconnected) {
 		/* Disable flow control */
 		if (!on &&
 		    ssu100_setregister(dev, 0, UART_MCR, 0) < 0)
+#else
+	/* Disable flow control */
+	if (!on) {
+		if (ssu100_setregister(dev, 0, UART_MCR, 0) < 0)
+#endif
 			dev_err(&port->dev, "error from flowcontrol urb\n");
+#if !defined(CONFIG_BCM_KF_ANDROID) || !defined(CONFIG_BCM_ANDROID)
 		/* drop RTS and DTR */
 		if (on)
 			set_mctrl(dev, TIOCM_DTR | TIOCM_RTS);
 		else
 			clear_mctrl(dev, TIOCM_DTR | TIOCM_RTS);
+#endif
 	}
+#if !defined(CONFIG_BCM_KF_ANDROID) || !defined(CONFIG_BCM_ANDROID)
 	mutex_unlock(&port->serial->disc_mutex);
+#else
+	/* drop RTS and DTR */
+	if (on)
+		set_mctrl(dev, TIOCM_DTR | TIOCM_RTS);
+	else
+		clear_mctrl(dev, TIOCM_DTR | TIOCM_RTS);
+#endif
 }
 
 static void ssu100_update_msr(struct usb_serial_port *port, u8 msr)

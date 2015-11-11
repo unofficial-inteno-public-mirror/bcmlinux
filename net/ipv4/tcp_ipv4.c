@@ -685,7 +685,12 @@ static void tcp_v4_send_reset(struct sock *sk, struct sk_buff *skb)
 	 * routing might fail in this case. using iif for oif to
 	 * make sure we can deliver it
 	 */
+#if !defined(CONFIG_BCM_KF_ANDROID) || !defined(CONFIG_BCM_ANDROID)
 	arg.bound_dev_if = sk ? sk->sk_bound_dev_if : inet_iif(skb);
+#else
+	if (sk)
+		arg.bound_dev_if = sk->sk_bound_dev_if;
+#endif
 
 	net = dev_net(skb_dst(skb)->dev);
 	arg.tos = ip_hdr(skb)->tos;
@@ -1527,10 +1532,15 @@ exit:
 	NET_INC_STATS_BH(sock_net(sk), LINUX_MIB_LISTENDROPS);
 	return NULL;
 put_and_exit:
+#if !defined(CONFIG_BCM_KF_ANDROID) || !defined(CONFIG_BCM_ANDROID)
 	tcp_clear_xmit_timers(newsk);
 	tcp_cleanup_congestion_control(newsk);
 	bh_unlock_sock(newsk);
 	sock_put(newsk);
+#else
+	inet_csk_prepare_forced_close(newsk);
+	tcp_done(newsk);
+#endif
 	goto exit;
 }
 EXPORT_SYMBOL(tcp_v4_syn_recv_sock);

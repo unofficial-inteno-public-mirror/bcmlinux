@@ -340,7 +340,11 @@ wait_for_response(struct TCP_Server_Info *server, struct mid_q_entry *midQ)
 {
 	int error;
 
+#if !defined(CONFIG_BCM_KF_ANDROID) || !defined(CONFIG_BCM_ANDROID)
 	error = wait_event_freezekillable(server->response_q,
+#else
+	error = wait_event_freezekillable_unsafe(server->response_q,
+#endif
 				    midQ->mid_state != MID_REQUEST_SUBMITTED);
 	if (error < 0)
 		return -ERESTARTSYS;

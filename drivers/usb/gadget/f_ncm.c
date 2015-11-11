@@ -1259,9 +1259,17 @@ fail:
 	/* we might as well release our claims on endpoints */
 	if (ncm->notify)
 		ncm->notify->driver_data = NULL;
+#if !defined(CONFIG_BCM_KF_ANDROID) || !defined(CONFIG_BCM_ANDROID)
 	if (ncm->port.out_ep->desc)
+#else
+	if (ncm->port.out_ep)
+#endif
 		ncm->port.out_ep->driver_data = NULL;
+#if !defined(CONFIG_BCM_KF_ANDROID) || !defined(CONFIG_BCM_ANDROID)
 	if (ncm->port.in_ep->desc)
+#else
+	if (ncm->port.in_ep)
+#endif
 		ncm->port.in_ep->driver_data = NULL;
 
 	ERROR(cdev, "%s: can't bind, err %d\n", f->name, status);

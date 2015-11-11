@@ -634,7 +634,11 @@ asmlinkage void __init start_kernel(void)
 	pidmap_init();
 	anon_vma_init();
 #ifdef CONFIG_X86
+#if !defined(CONFIG_BCM_KF_ANDROID) || !defined(CONFIG_BCM_ANDROID)
 	if (efi_enabled)
+#else
+	if (efi_enabled(EFI_RUNTIME_SERVICES))
+#endif
 		efi_enter_virtual_mode();
 #endif
 	thread_info_cache_init();
@@ -662,6 +666,11 @@ asmlinkage void __init start_kernel(void)
 	acpi_early_init(); /* before LAPIC and SMP init */
 	sfi_init_late();
 
+#if defined(CONFIG_BCM_KF_ANDROID) && defined(CONFIG_BCM_ANDROID)
+	if (efi_enabled(EFI_RUNTIME_SERVICES))
+		efi_free_boot_services();
+
+#endif
 	ftrace_init();
 #if defined(CONFIG_BCM_KF_LOG) && defined(CONFIG_BCM_LOG)
 	bcmLog_init();

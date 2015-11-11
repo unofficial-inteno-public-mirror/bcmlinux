@@ -67,7 +67,11 @@ static int tpk_printk(const unsigned char *buf, int count)
 				tmp[tpk_curr + 1] = '\0';
 				printk(KERN_INFO "%s%s", tpk_tag, tmp);
 				tpk_curr = 0;
+#if !defined(CONFIG_BCM_KF_ANDROID) || !defined(CONFIG_BCM_ANDROID)
 				if (buf[i + 1] == '\n')
+#else
+				if ((i + 1) < count && buf[i + 1] == '\n')
+#endif
 					i++;
 				break;
 			case '\n':

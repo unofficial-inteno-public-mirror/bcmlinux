@@ -1188,6 +1188,10 @@ rollback:
  */
 int dev_set_alias(struct net_device *dev, const char *alias, size_t len)
 {
+#if defined(CONFIG_BCM_KF_ANDROID) && defined(CONFIG_BCM_ANDROID)
+	char *new_ifalias;
+
+#endif
 	ASSERT_RTNL();
 
 	if (len >= IFALIASZ)
@@ -1201,9 +1205,17 @@ int dev_set_alias(struct net_device *dev, const char *alias, size_t len)
 		return 0;
 	}
 
+#if !defined(CONFIG_BCM_KF_ANDROID) || !defined(CONFIG_BCM_ANDROID)
 	dev->ifalias = krealloc(dev->ifalias, len + 1, GFP_KERNEL);
 	if (!dev->ifalias)
+#else
+	new_ifalias = krealloc(dev->ifalias, len + 1, GFP_KERNEL);
+	if (!new_ifalias)
+#endif
 		return -ENOMEM;
+#if defined(CONFIG_BCM_KF_ANDROID) && defined(CONFIG_BCM_ANDROID)
+	dev->ifalias = new_ifalias;
+#endif
 
 	strlcpy(dev->ifalias, alias, len+1);
 	return len;
@@ -1611,7 +1623,9 @@ void net_enable_timestamp(void)
 		return;
 	}
 #endif
+#if !defined(CONFIG_BCM_KF_ANDROID) || !defined(CONFIG_BCM_ANDROID)
 	WARN_ON(in_interrupt());
+#endif
 	static_key_slow_inc(&netstamp_needed);
 }
 EXPORT_SYMBOL(net_enable_timestamp);
@@ -1773,6 +1787,21 @@ static inline int deliver_skb(struct sk_buff *skb,
 	return pt_prev->func(skb, skb->dev, pt_prev, orig_dev);
 }
 
+#if defined(CONFIG_BCM_KF_ANDROID) && defined(CONFIG_BCM_ANDROID)
+static inline bool skb_loop_sk(struct packet_type *ptype, struct sk_buff *skb)
+{
+	if (!ptype->af_packet_priv || !skb->sk)
+		return false;
+
+	if (ptype->id_match)
+		return ptype->id_match(ptype, skb->sk);
+	else if ((struct sock *)ptype->af_packet_priv == skb->sk)
+		return true;
+
+	return false;
+}
+
+#endif
 /*
  *	Support routine. Sends outgoing frames to any network
  *	taps currently in use.
@@ -1790,8 +1819,12 @@ static void dev_queue_xmit_nit(struct sk_buff *skb, struct net_device *dev)
 		 * they originated from - MvS (miquels@drinkel.ow.org)
 		 */
 		if ((ptype->dev == dev || !ptype->dev) &&
+#if !defined(CONFIG_BCM_KF_ANDROID) || !defined(CONFIG_BCM_ANDROID)
 		    (ptype->af_packet_priv == NULL ||
 		     (struct sock *)ptype->af_packet_priv != skb->sk)) {
+#else
+		    (!skb_loop_sk(ptype, skb))) {
+#endif
 			if (pt_prev) {
 				deliver_skb(skb2, pt_prev, skb->dev);
 				pt_prev = ptype;
@@ -2400,7 +2433,12 @@ static bool can_checksum_protocol(netdev_features_t features, __be16 protocol)
 static netdev_features_t harmonize_features(struct sk_buff *skb,
 	__be16 protocol, netdev_features_t features)
 {
+#if !defined(CONFIG_BCM_KF_ANDROID) || !defined(CONFIG_BCM_ANDROID)
 	if (!can_checksum_protocol(features, protocol)) {
+#else
+	if (skb->ip_summed != CHECKSUM_NONE &&
+	    !can_checksum_protocol(features, protocol)) {
+#endif
 		features &= ~NETIF_F_ALL_CSUM;
 		features &= ~NETIF_F_SG;
 	} else if (illegal_highdma(skb->dev, skb)) {
@@ -2415,6 +2453,11 @@ netdev_features_t netif_skb_features(struct sk_buff *skb)
 	__be16 protocol = skb->protocol;
 	netdev_features_t features = skb->dev->features;
 
+#if defined(CONFIG_BCM_KF_ANDROID) && defined(CONFIG_BCM_ANDROID)
+	if (skb_shinfo(skb)->gso_segs > skb->dev->gso_max_segs)
+		features &= ~NETIF_F_GSO_MASK;
+
+#endif
 	if (protocol == htons(ETH_P_8021Q)) {
 		struct vlan_ethhdr *veh = (struct vlan_ethhdr *)skb->data;
 		protocol = veh->h_vlan_encapsulated_proto;
@@ -2985,15 +3028,31 @@ void __skb_get_rxhash(struct sk_buff *skb)
 	if (!skb_flow_dissect(skb, &keys))
 		return;
 
+#if !defined(CONFIG_BCM_KF_ANDROID) || !defined(CONFIG_BCM_ANDROID)
 	if (keys.ports) {
 		if ((__force u16)keys.port16[1] < (__force u16)keys.port16[0])
 			swap(keys.port16[0], keys.port16[1]);
+#else
+	if (keys.ports)
+#endif
 			skb->l4_rxhash = 1;
+#if !defined(CONFIG_BCM_KF_ANDROID) || !defined(CONFIG_BCM_ANDROID)
 		}
+#endif
 
 	/* get a consistent hash (same value on both flow directions) */
+#if !defined(CONFIG_BCM_KF_ANDROID) || !defined(CONFIG_BCM_ANDROID)
 	if ((__force u32)keys.dst < (__force u32)keys.src)
+#else
+	if (((__force u32)keys.dst < (__force u32)keys.src) ||
+	    (((__force u32)keys.dst == (__force u32)keys.src) &&
+	     ((__force u16)keys.port16[1] < (__force u16)keys.port16[0]))) {
+#endif
 		swap(keys.dst, keys.src);
+#if defined(CONFIG_BCM_KF_ANDROID) && defined(CONFIG_BCM_ANDROID)
+		swap(keys.port16[0], keys.port16[1]);
+	}
+#endif
 
 	hash = jhash_3words((__force u32)keys.dst,
 			    (__force u32)keys.src,
@@ -3129,8 +3188,16 @@ static int get_rps_cpu(struct net_device *dev, struct sk_buff *skb,
 		if (unlikely(tcpu != next_cpu) &&
 		    (tcpu == RPS_NO_CPU || !cpu_online(tcpu) ||
 		     ((int)(per_cpu(softnet_data, tcpu).input_queue_head -
+#if !defined(CONFIG_BCM_KF_ANDROID) || !defined(CONFIG_BCM_ANDROID)
 		      rflow->last_qtail)) >= 0))
+#else
+		      rflow->last_qtail)) >= 0)) {
+			tcpu = next_cpu;
+#endif
 			rflow = set_rps_cpu(dev, skb, rflow, next_cpu);
+#if defined(CONFIG_BCM_KF_ANDROID) && defined(CONFIG_BCM_ANDROID)
+		}
+#endif
 
 		if (tcpu != RPS_NO_CPU && cpu_online(tcpu)) {
 			*rflowp = rflow;
@@ -3546,6 +3613,9 @@ int netdev_rx_handler_register(struct net_device *dev,
 	if (dev->rx_handler)
 		return -EBUSY;
 
+#if defined(CONFIG_BCM_KF_ANDROID) && defined(CONFIG_BCM_ANDROID)
+	/* Note: rx_handler_data must be set before rx_handler */
+#endif
 	rcu_assign_pointer(dev->rx_handler_data, rx_handler_data);
 	rcu_assign_pointer(dev->rx_handler, rx_handler);
 
@@ -3573,6 +3643,13 @@ void netdev_rx_handler_unregister(struct net_device *dev)
 
 	ASSERT_RTNL();
 	RCU_INIT_POINTER(dev->rx_handler, NULL);
+#if defined(CONFIG_BCM_KF_ANDROID) && defined(CONFIG_BCM_ANDROID)
+	/* a reader seeing a non NULL rx_handler in a rcu_read_lock()
+	 * section has a guarantee to see a non NULL rx_handler_data
+	 * as well.
+	 */
+	synchronize_net();
+#endif
 	RCU_INIT_POINTER(dev->rx_handler_data, NULL);
 }
 EXPORT_SYMBOL_GPL(netdev_rx_handler_unregister);
@@ -3683,13 +3760,19 @@ another_round:
 ncls:
 #endif
 
+#if !defined(CONFIG_BCM_KF_ANDROID) || !defined(CONFIG_BCM_ANDROID)
 	rx_handler = rcu_dereference(skb->dev->rx_handler);
+#endif
 	if (vlan_tx_tag_present(skb)) {
 		if (pt_prev) {
 			ret = deliver_skb(skb, pt_prev, orig_dev);
 			pt_prev = NULL;
 		}
+#if !defined(CONFIG_BCM_KF_ANDROID) || !defined(CONFIG_BCM_ANDROID)
 		if (vlan_do_receive(&skb, !rx_handler))
+#else
+		if (vlan_do_receive(&skb))
+#endif
 			goto another_round;
 		else if (unlikely(!skb))
 			goto out;
@@ -3704,6 +3787,9 @@ ncls:
    }
 #endif
 
+#if defined(CONFIG_BCM_KF_ANDROID) && defined(CONFIG_BCM_ANDROID)
+	rx_handler = rcu_dereference(skb->dev->rx_handler);
+#endif
 	if (rx_handler) {
 		if (pt_prev) {
 			ret = deliver_skb(skb, pt_prev, orig_dev);
@@ -3711,6 +3797,9 @@ ncls:
 		}
 		switch (rx_handler(&skb)) {
 		case RX_HANDLER_CONSUMED:
+#if defined(CONFIG_BCM_KF_ANDROID) && defined(CONFIG_BCM_ANDROID)
+			ret = NET_RX_SUCCESS;
+#endif
 			goto out;
 		case RX_HANDLER_ANOTHER:
 			goto another_round;
@@ -3727,6 +3816,11 @@ ncls:
 skip_rx_handler:
 #endif
 
+#if defined(CONFIG_BCM_KF_ANDROID) && defined(CONFIG_BCM_ANDROID)
+	if (vlan_tx_nonzero_tag_present(skb))
+		skb->pkt_type = PACKET_OTHERHOST;
+
+#endif
 	/* deliver only exact match when indicated */
 	null_or_dev = deliver_exact ? skb->dev : NULL;
 
@@ -6771,6 +6865,9 @@ struct net_device *alloc_netdev_mqs(int sizeof_priv, const char *name,
 	dev_net_set(dev, &init_net);
 
 	dev->gso_max_size = GSO_MAX_SIZE;
+#if defined(CONFIG_BCM_KF_ANDROID) && defined(CONFIG_BCM_ANDROID)
+	dev->gso_max_segs = GSO_MAX_SEGS;
+#endif
 
 	INIT_LIST_HEAD(&dev->napi_list);
 	INIT_LIST_HEAD(&dev->unreg_list);
@@ -7153,7 +7250,12 @@ static struct hlist_head *netdev_create_hash(void)
 /* Initialize per network namespace state */
 static int __net_init netdev_init(struct net *net)
 {
+#if !defined(CONFIG_BCM_KF_ANDROID) || !defined(CONFIG_BCM_ANDROID)
 	INIT_LIST_HEAD(&net->dev_base_head);
+#else
+	if (net != &init_net)
+		INIT_LIST_HEAD(&net->dev_base_head);
+#endif
 
 	net->dev_name_head = netdev_create_hash();
 	if (net->dev_name_head == NULL)

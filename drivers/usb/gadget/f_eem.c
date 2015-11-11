@@ -319,10 +319,18 @@ fail:
 	if (f->hs_descriptors)
 		usb_free_descriptors(f->hs_descriptors);
 
+#if !defined(CONFIG_BCM_KF_ANDROID) || !defined(CONFIG_BCM_ANDROID)
 	/* we might as well release our claims on endpoints */
 	if (eem->port.out_ep->desc)
+#else
+	if (eem->port.out_ep)
+#endif
 		eem->port.out_ep->driver_data = NULL;
+#if !defined(CONFIG_BCM_KF_ANDROID) || !defined(CONFIG_BCM_ANDROID)
 	if (eem->port.in_ep->desc)
+#else
+	if (eem->port.in_ep)
+#endif
 		eem->port.in_ep->driver_data = NULL;
 
 	ERROR(cdev, "%s: can't bind, err %d\n", f->name, status);

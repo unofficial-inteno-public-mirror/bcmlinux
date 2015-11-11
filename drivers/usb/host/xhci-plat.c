@@ -118,7 +118,11 @@ static int xhci_plat_probe(struct platform_device *pdev)
 		goto put_hcd;
 	}
 
+#if !defined(CONFIG_BCM_KF_ANDROID) || !defined(CONFIG_BCM_ANDROID)
 	hcd->regs = ioremap(hcd->rsrc_start, hcd->rsrc_len);
+#else
+	hcd->regs = ioremap_nocache(hcd->rsrc_start, hcd->rsrc_len);
+#endif
 	if (!hcd->regs) {
 		dev_dbg(&pdev->dev, "error mapping memory\n");
 		ret = -EFAULT;

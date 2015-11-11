@@ -10,6 +10,9 @@
  */
 
 #include <linux/devfreq.h>
+#if defined(CONFIG_BCM_KF_ANDROID) && defined(CONFIG_BCM_ANDROID)
+#include "governor.h"
+#endif
 
 static int devfreq_powersave_func(struct devfreq *df,
 				  unsigned long *freq)
@@ -22,8 +25,18 @@ static int devfreq_powersave_func(struct devfreq *df,
 	return 0;
 }
 
+#if defined(CONFIG_BCM_KF_ANDROID) && defined(CONFIG_BCM_ANDROID)
+static int powersave_init(struct devfreq *devfreq)
+{
+	return update_devfreq(devfreq);
+}
+
+#endif
 const struct devfreq_governor devfreq_powersave = {
 	.name = "powersave",
+#if defined(CONFIG_BCM_KF_ANDROID) && defined(CONFIG_BCM_ANDROID)
+	.init = powersave_init,
+#endif
 	.get_target_freq = devfreq_powersave_func,
 	.no_central_polling = true,
 };

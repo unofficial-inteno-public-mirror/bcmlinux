@@ -1,0 +1,12 @@
+--- drivers/net/ethernet/realtek/atp.c	2015-11-10 18:01:56.499561271 +0100
++++ drivers/net/ethernet/realtek/atp.c	2015-11-06 12:40:02.000000000 +0100
+@@ -691,6 +691,9 @@
+ 		int i;
+ 		for (i = 0; i < 6; i++)
+ 			write_reg_byte(ioaddr, PAR0 + i, dev->dev_addr[i]);
++#if 0 && defined(TIMED_CHECKER)
++		mod_timer(&lp->timer, jiffies + TIMED_CHECKER);
++#endif
+ 	}
+ 
+ 	/* Tell the adapter that it can go back to using the output line as IRQ. */

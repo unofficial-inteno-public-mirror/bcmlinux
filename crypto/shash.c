@@ -530,7 +530,12 @@ static int crypto_shash_report(struct sk_buff *skb, struct crypto_alg *alg)
 	struct crypto_report_hash rhash;
 	struct shash_alg *salg = __crypto_shash_alg(alg);
 
+#if !defined(CONFIG_BCM_KF_ANDROID) || !defined(CONFIG_BCM_ANDROID)
 	snprintf(rhash.type, CRYPTO_MAX_ALG_NAME, "%s", "shash");
+#else
+	strncpy(rhash.type, "shash", sizeof(rhash.type));
+
+#endif
 	rhash.blocksize = alg->cra_blocksize;
 	rhash.digestsize = salg->digestsize;
 

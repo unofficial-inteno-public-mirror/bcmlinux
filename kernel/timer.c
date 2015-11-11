@@ -63,6 +63,9 @@ EXPORT_SYMBOL(jiffies_64);
 #define TVR_SIZE (1 << TVR_BITS)
 #define TVN_MASK (TVN_SIZE - 1)
 #define TVR_MASK (TVR_SIZE - 1)
+#if defined(CONFIG_BCM_KF_ANDROID) && defined(CONFIG_BCM_ANDROID)
+#define MAX_TVAL ((unsigned long)((1ULL << (TVR_BITS + 4*TVN_BITS)) - 1))
+#endif
 
 struct tvec {
 	struct list_head vec[TVN_SIZE];
@@ -360,8 +363,13 @@ static void internal_add_timer(struct tvec_base *base, struct timer_list *timer)
 		/* If the timeout is larger than 0xffffffff on 64-bit
 		 * architectures then we use the maximum timeout:
 		 */
+#if !defined(CONFIG_BCM_KF_ANDROID) || !defined(CONFIG_BCM_ANDROID)
 		if (idx > 0xffffffffUL) {
 			idx = 0xffffffffUL;
+#else
+		if (idx > MAX_TVAL) {
+			idx = MAX_TVAL;
+#endif
 			expires = idx + base->timer_jiffies;
 		}
 		i = (expires >> (TVR_BITS + 3 * TVN_BITS)) & TVN_MASK;

@@ -66,6 +66,9 @@
 #define   L2X0_STNDBY_MODE_EN		(1 << 0)
 
 /* Registers shifts and masks */
+#if defined(CONFIG_BCM_KF_ANDROID) && defined(CONFIG_BCM_ANDROID)
+#define L2X0_CACHE_ID_REV_MASK		(0x3f)
+#endif
 #define L2X0_CACHE_ID_PART_MASK		(0xf << 6)
 #define L2X0_CACHE_ID_PART_L210		(1 << 6)
 #define L2X0_CACHE_ID_PART_L310		(3 << 6)
@@ -102,6 +105,10 @@
 
 #define L2X0_ADDR_FILTER_EN		1
 
+#if defined(CONFIG_BCM_KF_ANDROID) && defined(CONFIG_BCM_ANDROID)
+#define REV_PL310_R2P0				4
+
+#endif
 #ifndef __ASSEMBLY__
 extern void __init l2x0_init(void __iomem *base, u32 aux_val, u32 aux_mask);
 #if defined(CONFIG_CACHE_L2X0) && defined(CONFIG_OF)

@@ -24,6 +24,11 @@
 #include <linux/ethtool.h>
 #include <linux/skbuff.h>
 
+#if defined(CONFIG_BCM_KF_ANDROID) && defined(CONFIG_BCM_ANDROID)
+#include <net/dst.h>
+#include <net/xfrm.h>
+
+#endif
 #include "datapath.h"
 #include "vport-internal_dev.h"
 #include "vport-netdev.h"
@@ -209,6 +214,13 @@ static int internal_dev_recv(struct vport *vport, struct sk_buff *skb)
 	int len;
 
 	len = skb->len;
+#if defined(CONFIG_BCM_KF_ANDROID) && defined(CONFIG_BCM_ANDROID)
+
+	skb_dst_drop(skb);
+	nf_reset(skb);
+	secpath_reset(skb);
+
+#endif
 	skb->dev = netdev;
 	skb->pkt_type = PACKET_HOST;
 	skb->protocol = eth_type_trans(skb, netdev);

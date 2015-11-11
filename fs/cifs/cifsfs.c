@@ -557,6 +557,13 @@ cifs_get_root(struct smb_vol *vol, struct super_block *sb)
 			dentry = ERR_PTR(-ENOENT);
 			break;
 		}
+#if defined(CONFIG_BCM_KF_ANDROID) && defined(CONFIG_BCM_ANDROID)
+		if (!S_ISDIR(dir->i_mode)) {
+			dput(dentry);
+			dentry = ERR_PTR(-ENOTDIR);
+			break;
+		}
+#endif
 
 		/* skip separators */
 		while (*s == sep)

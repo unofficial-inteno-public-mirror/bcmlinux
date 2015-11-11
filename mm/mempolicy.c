@@ -607,6 +607,44 @@ check_range(struct mm_struct *mm, unsigned long start, unsigned long end,
 	return first;
 }
 
+#if defined(CONFIG_BCM_KF_ANDROID) && defined(CONFIG_BCM_ANDROID)
+/*
+ * Apply policy to a single VMA
+ * This must be called with the mmap_sem held for writing.
+ */
+static int vma_replace_policy(struct vm_area_struct *vma,
+						struct mempolicy *pol)
+{
+	int err;
+	struct mempolicy *old;
+	struct mempolicy *new;
+
+	pr_debug("vma %lx-%lx/%lx vm_ops %p vm_file %p set_policy %p\n",
+		 vma->vm_start, vma->vm_end, vma->vm_pgoff,
+		 vma->vm_ops, vma->vm_file,
+		 vma->vm_ops ? vma->vm_ops->set_policy : NULL);
+
+	new = mpol_dup(pol);
+	if (IS_ERR(new))
+		return PTR_ERR(new);
+
+	if (vma->vm_ops && vma->vm_ops->set_policy) {
+		err = vma->vm_ops->set_policy(vma, new);
+		if (err)
+			goto err_out;
+	}
+
+	old = vma->vm_policy;
+	vma->vm_policy = new; /* protected by mmap_sem */
+	mpol_put(old);
+
+	return 0;
+ err_out:
+	mpol_put(new);
+	return err;
+}
+
+#endif
 /* Step 2: apply policy to a range and do splits. */
 static int mbind_range(struct mm_struct *mm, unsigned long start,
 		       unsigned long end, struct mempolicy *new_pol)
@@ -639,7 +677,11 @@ static int mbind_range(struct mm_struct *mm, unsigned long start,
 			((vmstart - vma->vm_start) >> PAGE_SHIFT);
 		prev = vma_merge(mm, prev, vmstart, vmend, vma->vm_flags,
 				  vma->anon_vma, vma->vm_file, pgoff,
+#if !defined(CONFIG_BCM_KF_ANDROID) || !defined(CONFIG_BCM_ANDROID)
 				  new_pol);
+#else
+				  new_pol, vma_get_anon_name(name));
+#endif
 		if (prev) {
 			vma = prev;
 			next = vma->vm_next;
@@ -655,6 +697,7 @@ static int mbind_range(struct mm_struct *mm, unsigned long start,
 			if (err)
 				goto out;
 		}
+#if !defined(CONFIG_BCM_KF_ANDROID) || !defined(CONFIG_BCM_ANDROID)
 
 		/*
 		 * Apply policy to a single VMA. The reference counting of
@@ -672,6 +715,11 @@ static int mbind_range(struct mm_struct *mm, unsigned long start,
 			if (err)
 				goto out;
 		}
+#else
+		err = vma_replace_policy(vma, new_pol);
+		if (err)
+			goto out;
+#endif
 	}
 
  out:
@@ -1510,8 +1558,24 @@ struct mempolicy *get_vma_policy(struct task_struct *task,
 									addr);
 			if (vpol)
 				pol = vpol;
+#if !defined(CONFIG_BCM_KF_ANDROID) || !defined(CONFIG_BCM_ANDROID)
 		} else if (vma->vm_policy)
+#else
+		} else if (vma->vm_policy) {
+#endif
 			pol = vma->vm_policy;
+#if defined(CONFIG_BCM_KF_ANDROID) && defined(CONFIG_BCM_ANDROID)
+
+			/*
+			 * shmem_alloc_page() passes MPOL_F_SHARED policy with
+			 * a pseudo vma whose vma->vm_ops=NULL. Take a reference
+			 * count on these policies which will be dropped by
+			 * mpol_cond_put() later
+			 */
+			if (mpol_needs_cond_ref(pol))
+				mpol_get(pol);
+		}
+#endif
 	}
 	if (!pol)
 		pol = &default_policy;
@@ -1977,6 +2041,7 @@ struct mempolicy *__mpol_dup(struct mempolicy *old)
 	return new;
 }
 
+#if !defined(CONFIG_BCM_KF_ANDROID) || !defined(CONFIG_BCM_ANDROID)
 /*
  * If *frompol needs [has] an extra ref, copy *frompol to *tompol ,
  * eliminate the * MPOL_F_* flags that require conditional ref and
@@ -1999,6 +2064,7 @@ struct mempolicy *__mpol_cond_copy(struct mempolicy *tompol,
 	return tompol;
 }
 
+#endif
 /* Slow path of a mempolicy comparison */
 bool __mpol_equal(struct mempolicy *a, struct mempolicy *b)
 {
@@ -2035,7 +2101,11 @@ bool __mpol_equal(struct mempolicy *a, struct mempolicy *b)
  */
 
 /* lookup first element intersecting start-end */
+#if !defined(CONFIG_BCM_KF_ANDROID) || !defined(CONFIG_BCM_ANDROID)
 /* Caller holds sp->lock */
+#else
+/* Caller holds sp->mutex */
+#endif
 static struct sp_node *
 sp_lookup(struct shared_policy *sp, unsigned long start, unsigned long end)
 {
@@ -2099,36 +2169,79 @@ mpol_shared_policy_lookup(struct shared_policy *sp, unsigned long idx)
 
 	if (!sp->root.rb_node)
 		return NULL;
+#if !defined(CONFIG_BCM_KF_ANDROID) || !defined(CONFIG_BCM_ANDROID)
 	spin_lock(&sp->lock);
+#else
+	mutex_lock(&sp->mutex);
+#endif
 	sn = sp_lookup(sp, idx, idx+1);
 	if (sn) {
 		mpol_get(sn->policy);
 		pol = sn->policy;
 	}
+#if !defined(CONFIG_BCM_KF_ANDROID) || !defined(CONFIG_BCM_ANDROID)
 	spin_unlock(&sp->lock);
+#else
+	mutex_unlock(&sp->mutex);
+#endif
 	return pol;
 }
 
+#if defined(CONFIG_BCM_KF_ANDROID) && defined(CONFIG_BCM_ANDROID)
+static void sp_free(struct sp_node *n)
+{
+	mpol_put(n->policy);
+	kmem_cache_free(sn_cache, n);
+}
+
+#endif
 static void sp_delete(struct shared_policy *sp, struct sp_node *n)
 {
 	pr_debug("deleting %lx-l%lx\n", n->start, n->end);
 	rb_erase(&n->nd, &sp->root);
+#if !defined(CONFIG_BCM_KF_ANDROID) || !defined(CONFIG_BCM_ANDROID)
 	mpol_put(n->policy);
 	kmem_cache_free(sn_cache, n);
+#else
+	sp_free(n);
+#endif
 }
 
 static struct sp_node *sp_alloc(unsigned long start, unsigned long end,
 				struct mempolicy *pol)
 {
+#if !defined(CONFIG_BCM_KF_ANDROID) || !defined(CONFIG_BCM_ANDROID)
 	struct sp_node *n = kmem_cache_alloc(sn_cache, GFP_KERNEL);
+#else
+	struct sp_node *n;
+	struct mempolicy *newpol;
+#endif
 
+#if defined(CONFIG_BCM_KF_ANDROID) && defined(CONFIG_BCM_ANDROID)
+	n = kmem_cache_alloc(sn_cache, GFP_KERNEL);
+#endif
 	if (!n)
 		return NULL;
+#if defined(CONFIG_BCM_KF_ANDROID) && defined(CONFIG_BCM_ANDROID)
+
+	newpol = mpol_dup(pol);
+	if (IS_ERR(newpol)) {
+		kmem_cache_free(sn_cache, n);
+		return NULL;
+	}
+	newpol->flags |= MPOL_F_SHARED;
+
+#endif
 	n->start = start;
 	n->end = end;
+#if !defined(CONFIG_BCM_KF_ANDROID) || !defined(CONFIG_BCM_ANDROID)
 	mpol_get(pol);
 	pol->flags |= MPOL_F_SHARED;	/* for unref */
 	n->policy = pol;
+#else
+	n->policy = newpol;
+
+#endif
 	return n;
 }
 
@@ -2136,10 +2249,19 @@ static struct sp_node *sp_alloc(unsigned long start, unsigned long end,
 static int shared_policy_replace(struct shared_policy *sp, unsigned long start,
 				 unsigned long end, struct sp_node *new)
 {
+#if !defined(CONFIG_BCM_KF_ANDROID) || !defined(CONFIG_BCM_ANDROID)
 	struct sp_node *n, *new2 = NULL;
+#else
+	struct sp_node *n;
+	int ret = 0;
+#endif
 
+#if !defined(CONFIG_BCM_KF_ANDROID) || !defined(CONFIG_BCM_ANDROID)
 restart:
 	spin_lock(&sp->lock);
+#else
+	mutex_lock(&sp->mutex);
+#endif
 	n = sp_lookup(sp, start, end);
 	/* Take care of old policies in the same range. */
 	while (n && n->start < end) {
@@ -2152,16 +2274,27 @@ restart:
 		} else {
 			/* Old policy spanning whole new range. */
 			if (n->end > end) {
+#if defined(CONFIG_BCM_KF_ANDROID) && defined(CONFIG_BCM_ANDROID)
+				struct sp_node *new2;
+				new2 = sp_alloc(end, n->end, n->policy);
+#endif
 				if (!new2) {
+#if !defined(CONFIG_BCM_KF_ANDROID) || !defined(CONFIG_BCM_ANDROID)
 					spin_unlock(&sp->lock);
 					new2 = sp_alloc(end, n->end, n->policy);
 					if (!new2)
 						return -ENOMEM;
 					goto restart;
+#else
+					ret = -ENOMEM;
+					goto out;
+#endif
 				}
 				n->end = start;
 				sp_insert(sp, new2);
+#if !defined(CONFIG_BCM_KF_ANDROID) || !defined(CONFIG_BCM_ANDROID)
 				new2 = NULL;
+#endif
 				break;
 			} else
 				n->end = start;
@@ -2172,12 +2305,18 @@ restart:
 	}
 	if (new)
 		sp_insert(sp, new);
+#if !defined(CONFIG_BCM_KF_ANDROID) || !defined(CONFIG_BCM_ANDROID)
 	spin_unlock(&sp->lock);
 	if (new2) {
 		mpol_put(new2->policy);
 		kmem_cache_free(sn_cache, new2);
 	}
 	return 0;
+#else
+out:
+	mutex_unlock(&sp->mutex);
+	return ret;
+#endif
 }
 
 /**
@@ -2195,7 +2334,11 @@ void mpol_shared_policy_init(struct shared_policy *sp, struct mempolicy *mpol)
 	int ret;
 
 	sp->root = RB_ROOT;		/* empty tree == default mempolicy */
+#if !defined(CONFIG_BCM_KF_ANDROID) || !defined(CONFIG_BCM_ANDROID)
 	spin_lock_init(&sp->lock);
+#else
+	mutex_init(&sp->mutex);
+#endif
 
 	if (mpol) {
 		struct vm_area_struct pvma;
@@ -2249,7 +2392,11 @@ int mpol_set_shared_policy(struct shared_policy *info,
 	}
 	err = shared_policy_replace(info, vma->vm_pgoff, vma->vm_pgoff+sz, new);
 	if (err && new)
+#if !defined(CONFIG_BCM_KF_ANDROID) || !defined(CONFIG_BCM_ANDROID)
 		kmem_cache_free(sn_cache, new);
+#else
+		sp_free(new);
+#endif
 	return err;
 }
 
@@ -2261,16 +2408,28 @@ void mpol_free_shared_policy(struct shared_policy *p)
 
 	if (!p->root.rb_node)
 		return;
+#if !defined(CONFIG_BCM_KF_ANDROID) || !defined(CONFIG_BCM_ANDROID)
 	spin_lock(&p->lock);
+#else
+	mutex_lock(&p->mutex);
+#endif
 	next = rb_first(&p->root);
 	while (next) {
 		n = rb_entry(next, struct sp_node, nd);
 		next = rb_next(&n->nd);
+#if !defined(CONFIG_BCM_KF_ANDROID) || !defined(CONFIG_BCM_ANDROID)
 		rb_erase(&n->nd, &p->root);
 		mpol_put(n->policy);
 		kmem_cache_free(sn_cache, n);
+#else
+		sp_delete(p, n);
+#endif
 	}
+#if !defined(CONFIG_BCM_KF_ANDROID) || !defined(CONFIG_BCM_ANDROID)
 	spin_unlock(&p->lock);
+#else
+	mutex_unlock(&p->mutex);
+#endif
 }
 
 /* assumes fs == KERNEL_DS */
@@ -2360,11 +2519,19 @@ static const char * const policy_modes[] =
  *
  * On success, returns 0, else 1
  */
+#if !defined(CONFIG_BCM_KF_ANDROID) || !defined(CONFIG_BCM_ANDROID)
 int mpol_parse_str(char *str, struct mempolicy **mpol, int no_context)
+#else
+int mpol_parse_str(char *str, struct mempolicy **mpol, int unused)
+#endif
 {
 	struct mempolicy *new = NULL;
 	unsigned short mode;
+#if !defined(CONFIG_BCM_KF_ANDROID) || !defined(CONFIG_BCM_ANDROID)
 	unsigned short uninitialized_var(mode_flags);
+#else
+	unsigned short mode_flags;
+#endif
 	nodemask_t nodes;
 	char *nodelist = strchr(str, ':');
 	char *flags = strchr(str, '=');
@@ -2452,6 +2619,7 @@ int mpol_parse_str(char *str, struct mempolicy **mpol, int no_context)
 	if (IS_ERR(new))
 		goto out;
 
+#if !defined(CONFIG_BCM_KF_ANDROID) || !defined(CONFIG_BCM_ANDROID)
 	if (no_context) {
 		/* save for contextualization */
 		new->w.user_nodemask = nodes;
@@ -2470,6 +2638,25 @@ int mpol_parse_str(char *str, struct mempolicy **mpol, int no_context)
 			goto out;
 		}
 	}
+#else
+	/*
+	 * Save nodes for mpol_to_str() to show the tmpfs mount options
+	 * for /proc/mounts, /proc/pid/mounts and /proc/pid/mountinfo.
+	 */
+	if (mode != MPOL_PREFERRED)
+		new->v.nodes = nodes;
+	else if (nodelist)
+		new->v.preferred_node = first_node(nodes);
+	else
+		new->flags |= MPOL_F_LOCAL;
+
+	/*
+	 * Save nodes for contextualization: this will be used to "clone"
+	 * the mempolicy in a specific context [cpuset] at a later time.
+	 */
+	new->w.user_nodemask = nodes;
+
+#endif
 	err = 0;
 
 out:
@@ -2495,7 +2682,11 @@ out:
  * Returns the number of characters in buffer (if positive)
  * or an error (negative)
  */
+#if !defined(CONFIG_BCM_KF_ANDROID) || !defined(CONFIG_BCM_ANDROID)
 int mpol_to_str(char *buffer, int maxlen, struct mempolicy *pol, int no_context)
+#else
+int mpol_to_str(char *buffer, int maxlen, struct mempolicy *pol, int unused)
+#endif
 {
 	char *p = buffer;
 	int l;
@@ -2521,7 +2712,11 @@ int mpol_to_str(char *buffer, int maxlen, struct mempolicy *pol, int no_context)
 	case MPOL_PREFERRED:
 		nodes_clear(nodes);
 		if (flags & MPOL_F_LOCAL)
+#if !defined(CONFIG_BCM_KF_ANDROID) || !defined(CONFIG_BCM_ANDROID)
 			mode = MPOL_LOCAL;	/* pseudo-policy */
+#else
+			mode = MPOL_LOCAL;
+#endif
 		else
 			node_set(pol->v.preferred_node, nodes);
 		break;
@@ -2529,10 +2724,14 @@ int mpol_to_str(char *buffer, int maxlen, struct mempolicy *pol, int no_context)
 	case MPOL_BIND:
 		/* Fall through */
 	case MPOL_INTERLEAVE:
+#if !defined(CONFIG_BCM_KF_ANDROID) || !defined(CONFIG_BCM_ANDROID)
 		if (no_context)
 			nodes = pol->w.user_nodemask;
 		else
 			nodes = pol->v.nodes;
+#else
+		nodes = pol->v.nodes;
+#endif
 		break;
 
 	default:

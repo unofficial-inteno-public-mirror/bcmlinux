@@ -1086,11 +1086,28 @@ static int snd_pcm_dev_disconnect(struct snd_device *device)
 	if (list_empty(&pcm->list))
 		goto unlock;
 
+#if defined(CONFIG_BCM_KF_ANDROID) && defined(CONFIG_BCM_ANDROID)
+	mutex_lock(&pcm->open_mutex);
+	wake_up(&pcm->open_wait);
+#endif
 	list_del_init(&pcm->list);
 	for (cidx = 0; cidx < 2; cidx++)
+#if !defined(CONFIG_BCM_KF_ANDROID) || !defined(CONFIG_BCM_ANDROID)
 		for (substream = pcm->streams[cidx].substream; substream; substream = substream->next)
 			if (substream->runtime)
+#else
+		for (substream = pcm->streams[cidx].substream; substream; substream = substream->next) {
+			snd_pcm_stream_lock_irq(substream);
+			if (substream->runtime) {
+#endif
 				substream->runtime->status->state = SNDRV_PCM_STATE_DISCONNECTED;
+#if defined(CONFIG_BCM_KF_ANDROID) && defined(CONFIG_BCM_ANDROID)
+				wake_up(&substream->runtime->sleep);
+				wake_up(&substream->runtime->tsleep);
+			}
+			snd_pcm_stream_unlock_irq(substream);
+		}
+#endif
 	list_for_each_entry(notify, &snd_pcm_notify_list, list) {
 		notify->n_disconnect(pcm);
 	}
@@ -1106,6 +1123,9 @@ static int snd_pcm_dev_disconnect(struct snd_device *device)
 		}
 		snd_unregister_device(devtype, pcm->card, pcm->device);
 	}
+#if defined(CONFIG_BCM_KF_ANDROID) && defined(CONFIG_BCM_ANDROID)
+	mutex_unlock(&pcm->open_mutex);
+#endif
  unlock:
 	mutex_unlock(&register_mutex);
 	return 0;

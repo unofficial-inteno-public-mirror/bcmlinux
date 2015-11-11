@@ -795,6 +795,9 @@ static void complete_scsi_command(CommandList_struct *c, int timeout,
 				}
 			break;
 			case CMD_PROTOCOL_ERR:
+#if defined(CONFIG_BCM_KF_ANDROID) && defined(CONFIG_BCM_ANDROID)
+				cmd->result = DID_ERROR << 16;
+#endif
 				dev_warn(&h->pdev->dev,
 					"%p has protocol error\n", c);
                         break;

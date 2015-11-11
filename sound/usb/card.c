@@ -336,7 +336,11 @@ static int snd_usb_audio_create(struct usb_device *dev, int idx,
 		return -ENOMEM;
 	}
 
+#if !defined(CONFIG_BCM_KF_ANDROID) || !defined(CONFIG_BCM_ANDROID)
 	mutex_init(&chip->shutdown_mutex);
+#else
+	init_rwsem(&chip->shutdown_rwsem);
+#endif
 	chip->index = idx;
 	chip->dev = dev;
 	chip->card = card;
@@ -555,9 +559,18 @@ static void snd_usb_audio_disconnect(struct usb_device *dev,
 		return;
 
 	card = chip->card;
+#if !defined(CONFIG_BCM_KF_ANDROID) || !defined(CONFIG_BCM_ANDROID)
 	mutex_lock(&register_mutex);
 	mutex_lock(&chip->shutdown_mutex);
+#else
+	down_write(&chip->shutdown_rwsem);
+#endif
 	chip->shutdown = 1;
+#if defined(CONFIG_BCM_KF_ANDROID) && defined(CONFIG_BCM_ANDROID)
+	up_write(&chip->shutdown_rwsem);
+
+	mutex_lock(&register_mutex);
+#endif
 	chip->num_interfaces--;
 	if (chip->num_interfaces <= 0) {
 		snd_card_disconnect(card);
@@ -574,11 +587,15 @@ static void snd_usb_audio_disconnect(struct usb_device *dev,
 			snd_usb_mixer_disconnect(p);
 		}
 		usb_chip[chip->index] = NULL;
+#if !defined(CONFIG_BCM_KF_ANDROID) || !defined(CONFIG_BCM_ANDROID)
 		mutex_unlock(&chip->shutdown_mutex);
+#endif
 		mutex_unlock(&register_mutex);
 		snd_card_free_when_closed(card);
 	} else {
+#if !defined(CONFIG_BCM_KF_ANDROID) || !defined(CONFIG_BCM_ANDROID)
 		mutex_unlock(&chip->shutdown_mutex);
+#endif
 		mutex_unlock(&register_mutex);
 	}
 }
@@ -610,16 +627,28 @@ int snd_usb_autoresume(struct snd_usb_audio *chip)
 {
 	int err = -ENODEV;
 
+#if defined(CONFIG_BCM_KF_ANDROID) && defined(CONFIG_BCM_ANDROID)
+	down_read(&chip->shutdown_rwsem);
+#endif
 	if (!chip->shutdown && !chip->probing)
 		err = usb_autopm_get_interface(chip->pm_intf);
+#if defined(CONFIG_BCM_KF_ANDROID) && defined(CONFIG_BCM_ANDROID)
+	up_read(&chip->shutdown_rwsem);
+#endif
 
 	return err;
 }
 
 void snd_usb_autosuspend(struct snd_usb_audio *chip)
 {
+#if defined(CONFIG_BCM_KF_ANDROID) && defined(CONFIG_BCM_ANDROID)
+	down_read(&chip->shutdown_rwsem);
+#endif
 	if (!chip->shutdown && !chip->probing)
 		usb_autopm_put_interface(chip->pm_intf);
+#if defined(CONFIG_BCM_KF_ANDROID) && defined(CONFIG_BCM_ANDROID)
+	up_read(&chip->shutdown_rwsem);
+#endif
 }
 
 static int usb_audio_suspend(struct usb_interface *intf, pm_message_t message)

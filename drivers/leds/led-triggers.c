@@ -102,6 +102,14 @@ EXPORT_SYMBOL_GPL(led_trigger_show);
 void led_trigger_set(struct led_classdev *led_cdev, struct led_trigger *trigger)
 {
 	unsigned long flags;
+#if defined(CONFIG_BCM_KF_ANDROID) && defined(CONFIG_BCM_ANDROID)
+	char *event = NULL;
+	char *envp[2];
+	const char *name;
+
+	name = trigger ? trigger->name : "none";
+	event = kasprintf(GFP_KERNEL, "TRIGGER=%s", name);
+#endif
 
 	/* Remove any existing trigger */
 	if (led_cdev->trigger) {
@@ -122,6 +130,15 @@ void led_trigger_set(struct led_classdev *led_cdev, struct led_trigger *trigger)
 		if (trigger->activate)
 			trigger->activate(led_cdev);
 	}
+#if defined(CONFIG_BCM_KF_ANDROID) && defined(CONFIG_BCM_ANDROID)
+
+	if (event) {
+		envp[0] = event;
+		envp[1] = NULL;
+		kobject_uevent_env(&led_cdev->dev->kobj, KOBJ_CHANGE, envp);
+		kfree(event);
+	}
+#endif
 }
 EXPORT_SYMBOL_GPL(led_trigger_set);
 

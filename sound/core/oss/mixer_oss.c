@@ -52,14 +52,33 @@ static int snd_mixer_oss_open(struct inode *inode, struct file *file)
 					 SNDRV_OSS_DEVICE_TYPE_MIXER);
 	if (card == NULL)
 		return -ENODEV;
+#if !defined(CONFIG_BCM_KF_ANDROID) || !defined(CONFIG_BCM_ANDROID)
 	if (card->mixer_oss == NULL)
+#else
+	if (card->mixer_oss == NULL) {
+		snd_card_unref(card);
+#endif
 		return -ENODEV;
+#if defined(CONFIG_BCM_KF_ANDROID) && defined(CONFIG_BCM_ANDROID)
+	}
+#endif
 	err = snd_card_file_add(card, file);
+#if !defined(CONFIG_BCM_KF_ANDROID) || !defined(CONFIG_BCM_ANDROID)
 	if (err < 0)
+#else
+	if (err < 0) {
+		snd_card_unref(card);
+#endif
 		return err;
+#if defined(CONFIG_BCM_KF_ANDROID) && defined(CONFIG_BCM_ANDROID)
+	}
+#endif
 	fmixer = kzalloc(sizeof(*fmixer), GFP_KERNEL);
 	if (fmixer == NULL) {
 		snd_card_file_remove(card, file);
+#if defined(CONFIG_BCM_KF_ANDROID) && defined(CONFIG_BCM_ANDROID)
+		snd_card_unref(card);
+#endif
 		return -ENOMEM;
 	}
 	fmixer->card = card;
@@ -68,8 +87,14 @@ static int snd_mixer_oss_open(struct inode *inode, struct file *file)
 	if (!try_module_get(card->module)) {
 		kfree(fmixer);
 		snd_card_file_remove(card, file);
+#if defined(CONFIG_BCM_KF_ANDROID) && defined(CONFIG_BCM_ANDROID)
+		snd_card_unref(card);
+#endif
 		return -EFAULT;
 	}
+#if defined(CONFIG_BCM_KF_ANDROID) && defined(CONFIG_BCM_ANDROID)
+	snd_card_unref(card);
+#endif
 	return 0;
 }
 

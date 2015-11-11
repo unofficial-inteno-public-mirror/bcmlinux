@@ -416,6 +416,9 @@ static void f_midi_unbind(struct usb_configuration *c, struct usb_function *f)
 	midi->id = NULL;
 
 	usb_free_descriptors(f->descriptors);
+#if defined(CONFIG_BCM_KF_ANDROID) && defined(CONFIG_BCM_ANDROID)
+	usb_free_descriptors(f->hs_descriptors);
+#endif
 	kfree(midi);
 }
 

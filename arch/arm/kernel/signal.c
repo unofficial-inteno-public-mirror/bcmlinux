@@ -645,7 +645,11 @@ static void do_signal(struct pt_regs *regs, int syscall)
 		}
 	}
 
+#if !defined(CONFIG_BCM_KF_ANDROID) || !defined(CONFIG_BCM_ANDROID)
 	if (try_to_freeze())
+#else
+	if (try_to_freeze_nowarn())
+#endif
 		goto no_signal;
 
 	/*

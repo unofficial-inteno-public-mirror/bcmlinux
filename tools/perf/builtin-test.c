@@ -1154,19 +1154,33 @@ static int test__parse_events(void)
 	return ret;
 }
 
+#if !defined(CONFIG_BCM_KF_ANDROID) || !defined(CONFIG_BCM_ANDROID)
 static int sched__get_first_possible_cpu(pid_t pid, cpu_set_t **maskp,
 					 size_t *sizep)
+#else
+static int sched__get_first_possible_cpu(pid_t pid, cpu_set_t *maskp)
+#endif
 {
+#if !defined(CONFIG_BCM_KF_ANDROID) || !defined(CONFIG_BCM_ANDROID)
 	cpu_set_t *mask;
 	size_t size;
+#endif
 	int i, cpu = -1, nrcpus = 1024;
 realloc:
+#if !defined(CONFIG_BCM_KF_ANDROID) || !defined(CONFIG_BCM_ANDROID)
 	mask = CPU_ALLOC(nrcpus);
 	size = CPU_ALLOC_SIZE(nrcpus);
 	CPU_ZERO_S(size, mask);
+#else
+	CPU_ZERO(maskp);
+#endif
 
+#if !defined(CONFIG_BCM_KF_ANDROID) || !defined(CONFIG_BCM_ANDROID)
 	if (sched_getaffinity(pid, size, mask) == -1) {
 		CPU_FREE(mask);
+#else
+	if (sched_getaffinity(pid, sizeof(*maskp), maskp) == -1) {
+#endif
 		if (errno == EINVAL && nrcpus < (1024 << 8)) {
 			nrcpus = nrcpus << 2;
 			goto realloc;
@@ -1176,19 +1190,31 @@ realloc:
 	}
 
 	for (i = 0; i < nrcpus; i++) {
+#if !defined(CONFIG_BCM_KF_ANDROID) || !defined(CONFIG_BCM_ANDROID)
 		if (CPU_ISSET_S(i, size, mask)) {
 			if (cpu == -1) {
+#else
+		if (CPU_ISSET(i, maskp)) {
+			if (cpu == -1)
+#endif
 				cpu = i;
+#if !defined(CONFIG_BCM_KF_ANDROID) || !defined(CONFIG_BCM_ANDROID)
 				*maskp = mask;
 				*sizep = size;
 			} else
 				CPU_CLR_S(i, size, mask);
+#else
+			else
+				CPU_CLR(i, maskp);
+#endif
 		}
 	}
 
+#if !defined(CONFIG_BCM_KF_ANDROID) || !defined(CONFIG_BCM_ANDROID)
 	if (cpu == -1)
 		CPU_FREE(mask);
 
+#endif
 	return cpu;
 }
 
@@ -1199,8 +1225,13 @@ static int test__PERF_RECORD(void)
 		.freq	    = 10,
 		.mmap_pages = 256,
 	};
+#if !defined(CONFIG_BCM_KF_ANDROID) || !defined(CONFIG_BCM_ANDROID)
 	cpu_set_t *cpu_mask = NULL;
 	size_t cpu_mask_size = 0;
+#else
+	cpu_set_t cpu_mask;
+	size_t cpu_mask_size = sizeof(cpu_mask);
+#endif
 	struct perf_evlist *evlist = perf_evlist__new(NULL, NULL);
 	struct perf_evsel *evsel;
 	struct perf_sample sample;
@@ -1265,8 +1296,12 @@ static int test__PERF_RECORD(void)
 	evsel->attr.sample_type |= PERF_SAMPLE_TIME;
 	perf_evlist__config_attrs(evlist, &opts);
 
+#if !defined(CONFIG_BCM_KF_ANDROID) || !defined(CONFIG_BCM_ANDROID)
 	err = sched__get_first_possible_cpu(evlist->workload.pid, &cpu_mask,
 					    &cpu_mask_size);
+#else
+	err = sched__get_first_possible_cpu(evlist->workload.pid, &cpu_mask);
+#endif
 	if (err < 0) {
 		pr_debug("sched__get_first_possible_cpu: %s\n", strerror(errno));
 		goto out_delete_evlist;
@@ -1277,9 +1312,17 @@ static int test__PERF_RECORD(void)
 	/*
 	 * So that we can check perf_sample.cpu on all the samples.
 	 */
+#if !defined(CONFIG_BCM_KF_ANDROID) || !defined(CONFIG_BCM_ANDROID)
 	if (sched_setaffinity(evlist->workload.pid, cpu_mask_size, cpu_mask) < 0) {
+#else
+	if (sched_setaffinity(evlist->workload.pid, cpu_mask_size, &cpu_mask) < 0) {
+#endif
 		pr_debug("sched_setaffinity: %s\n", strerror(errno));
+#if !defined(CONFIG_BCM_KF_ANDROID) || !defined(CONFIG_BCM_ANDROID)
 		goto out_free_cpu_mask;
+#else
+		goto out_delete_evlist;
+#endif
 	}
 
 	/*
@@ -1472,8 +1515,10 @@ found_exit:
 	}
 out_err:
 	perf_evlist__munmap(evlist);
+#if !defined(CONFIG_BCM_KF_ANDROID) || !defined(CONFIG_BCM_ANDROID)
 out_free_cpu_mask:
 	CPU_FREE(cpu_mask);
+#endif
 out_delete_evlist:
 	perf_evlist__delete(evlist);
 out:

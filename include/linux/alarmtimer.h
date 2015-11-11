@@ -35,6 +35,9 @@ enum alarmtimer_restart {
  */
 struct alarm {
 	struct timerqueue_node	node;
+#if defined(CONFIG_BCM_KF_ANDROID) && defined(CONFIG_BCM_ANDROID)
+	struct hrtimer		timer;
+#endif
 	enum alarmtimer_restart	(*function)(struct alarm *, ktime_t now);
 	enum alarmtimer_type	type;
 	int			state;
@@ -43,11 +46,21 @@ struct alarm {
 
 void alarm_init(struct alarm *alarm, enum alarmtimer_type type,
 		enum alarmtimer_restart (*function)(struct alarm *, ktime_t));
+#if !defined(CONFIG_BCM_KF_ANDROID) || !defined(CONFIG_BCM_ANDROID)
 void alarm_start(struct alarm *alarm, ktime_t start);
+#else
+int alarm_start(struct alarm *alarm, ktime_t start);
+int alarm_start_relative(struct alarm *alarm, ktime_t start);
+void alarm_restart(struct alarm *alarm);
+#endif
 int alarm_try_to_cancel(struct alarm *alarm);
 int alarm_cancel(struct alarm *alarm);
 
 u64 alarm_forward(struct alarm *alarm, ktime_t now, ktime_t interval);
+#if defined(CONFIG_BCM_KF_ANDROID) && defined(CONFIG_BCM_ANDROID)
+u64 alarm_forward_now(struct alarm *alarm, ktime_t interval);
+ktime_t alarm_expires_remaining(const struct alarm *alarm);
+#endif
 
 /*
  * A alarmtimer is active, when it is enqueued into timerqueue or the
@@ -76,4 +89,9 @@ static inline int alarmtimer_callback_running(struct alarm *timer)
 }
 
 
+#if defined(CONFIG_BCM_KF_ANDROID) && defined(CONFIG_BCM_ANDROID)
+/* Provide way to access the rtc device being used by alarmtimers */
+struct rtc_device *alarmtimer_get_rtcdev(void);
+
+#endif
 #endif

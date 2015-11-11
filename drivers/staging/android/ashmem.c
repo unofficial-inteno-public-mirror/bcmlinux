@@ -221,21 +221,52 @@ static ssize_t ashmem_read(struct file *file, char __user *buf,
 
 	/* If size is not set, or set to 0, always return EOF. */
 	if (asma->size == 0)
+#if !defined(CONFIG_BCM_KF_ANDROID) || !defined(CONFIG_BCM_ANDROID)
 		goto out;
+#else
+		goto out_unlock;
+#endif
 
 	if (!asma->file) {
 		ret = -EBADF;
+#if !defined(CONFIG_BCM_KF_ANDROID) || !defined(CONFIG_BCM_ANDROID)
 		goto out;
+#else
+		goto out_unlock;
+#endif
 	}
 
+#if !defined(CONFIG_BCM_KF_ANDROID) || !defined(CONFIG_BCM_ANDROID)
 	ret = asma->file->f_op->read(asma->file, buf, len, pos);
 	if (ret < 0)
 		goto out;
+#else
+	mutex_unlock(&ashmem_mutex);
+#endif
 
+#if !defined(CONFIG_BCM_KF_ANDROID) || !defined(CONFIG_BCM_ANDROID)
 	/** Update backing file pos, since f_ops->read() doesn't */
 	asma->file->f_pos = *pos;
+#else
+	/*
+	 * asma and asma->file are used outside the lock here.  We assume
+	 * once asma->file is set it will never be changed, and will not
+	 * be destroyed until all references to the file are dropped and
+	 * ashmem_release is called.
+	 */
+	ret = asma->file->f_op->read(asma->file, buf, len, pos);
+	if (ret >= 0) {
+		/** Update backing file pos, since f_ops->read() doesn't */
+		asma->file->f_pos = *pos;
+	}
+	return ret;
+#endif
 
+#if !defined(CONFIG_BCM_KF_ANDROID) || !defined(CONFIG_BCM_ANDROID)
 out:
+#else
+out_unlock:
+#endif
 	mutex_unlock(&ashmem_mutex);
 	return ret;
 }
@@ -314,6 +345,7 @@ static int ashmem_mmap(struct file *file, struct vm_area_struct *vma)
 	}
 	get_file(asma->file);
 
+#if !defined(CONFIG_BCM_KF_ANDROID) || !defined(CONFIG_BCM_ANDROID)
 	/*
 	 * XXX - Reworked to use shmem_zero_setup() instead of
 	 * shmem_set_file while we're in staging. -jstultz
@@ -324,11 +356,21 @@ static int ashmem_mmap(struct file *file, struct vm_area_struct *vma)
 			fput(asma->file);
 			goto out;
 		}
+#else
+	if (vma->vm_flags & VM_SHARED)
+		shmem_set_file(vma, asma->file);
+	else {
+		if (vma->vm_file)
+			fput(vma->vm_file);
+		vma->vm_file = asma->file;
+#endif
 	}
+#if !defined(CONFIG_BCM_KF_ANDROID) || !defined(CONFIG_BCM_ANDROID)
 
 	if (vma->vm_file)
 		fput(vma->vm_file);
 	vma->vm_file = asma->file;
+#endif
 	vma->vm_flags |= VM_CAN_NONLINEAR;
 
 out:
@@ -410,50 +452,94 @@ out:
 
 static int set_name(struct ashmem_area *asma, void __user *name)
 {
+#if defined(CONFIG_BCM_KF_ANDROID) && defined(CONFIG_BCM_ANDROID)
+	char lname[ASHMEM_NAME_LEN];
+	int len;
+#endif
 	int ret = 0;
 
+#if defined(CONFIG_BCM_KF_ANDROID) && defined(CONFIG_BCM_ANDROID)
+	len = strncpy_from_user(lname, name, ASHMEM_NAME_LEN);
+	if (len < 0)
+		return len;
+	if (len == ASHMEM_NAME_LEN)
+		lname[ASHMEM_NAME_LEN - 1] = '\0';
+#endif
 	mutex_lock(&ashmem_mutex);
 
 	/* cannot change an existing mapping's name */
+#if !defined(CONFIG_BCM_KF_ANDROID) || !defined(CONFIG_BCM_ANDROID)
 	if (unlikely(asma->file)) {
+#else
+	if (unlikely(asma->file))
+#endif
 		ret = -EINVAL;
+#if !defined(CONFIG_BCM_KF_ANDROID) || !defined(CONFIG_BCM_ANDROID)
 		goto out;
 	}
+#else
+	else
+		strcpy(asma->name + ASHMEM_NAME_PREFIX_LEN, lname);
+#endif
 
+#if !defined(CONFIG_BCM_KF_ANDROID) || !defined(CONFIG_BCM_ANDROID)
 	if (unlikely(copy_from_user(asma->name + ASHMEM_NAME_PREFIX_LEN,
 				    name, ASHMEM_NAME_LEN)))
 		ret = -EFAULT;
 	asma->name[ASHMEM_FULL_NAME_LEN-1] = '\0';
 
 out:
+#endif
 	mutex_unlock(&ashmem_mutex);
+#if !defined(CONFIG_BCM_KF_ANDROID) || !defined(CONFIG_BCM_ANDROID)
 
+#endif
 	return ret;
 }
 
 static int get_name(struct ashmem_area *asma, void __user *name)
 {
 	int ret = 0;
+#if defined(CONFIG_BCM_KF_ANDROID) && defined(CONFIG_BCM_ANDROID)
+	char lname[ASHMEM_NAME_LEN];
+	size_t len;
+#endif
 
 	mutex_lock(&ashmem_mutex);
 	if (asma->name[ASHMEM_NAME_PREFIX_LEN] != '\0') {
+#if !defined(CONFIG_BCM_KF_ANDROID) || !defined(CONFIG_BCM_ANDROID)
 		size_t len;
 
+#endif
 		/*
 		 * Copying only `len', instead of ASHMEM_NAME_LEN, bytes
 		 * prevents us from revealing one user's stack to another.
 		 */
 		len = strlen(asma->name + ASHMEM_NAME_PREFIX_LEN) + 1;
+#if !defined(CONFIG_BCM_KF_ANDROID) || !defined(CONFIG_BCM_ANDROID)
 		if (unlikely(copy_to_user(name,
 				asma->name + ASHMEM_NAME_PREFIX_LEN, len)))
 			ret = -EFAULT;
+#else
+		memcpy(lname, asma->name + ASHMEM_NAME_PREFIX_LEN, len);
+#endif
 	} else {
+#if !defined(CONFIG_BCM_KF_ANDROID) || !defined(CONFIG_BCM_ANDROID)
 		if (unlikely(copy_to_user(name, ASHMEM_NAME_DEF,
 					  sizeof(ASHMEM_NAME_DEF))))
 			ret = -EFAULT;
+#else
+		len = strlen(ASHMEM_NAME_DEF) + 1;
+		memcpy(lname, ASHMEM_NAME_DEF, len);
+#endif
 	}
 	mutex_unlock(&ashmem_mutex);
+#if !defined(CONFIG_BCM_KF_ANDROID) || !defined(CONFIG_BCM_ANDROID)
 
+#else
+	if (unlikely(copy_to_user(name, lname, len)))
+		ret = -EFAULT;
+#endif
 	return ret;
 }
 

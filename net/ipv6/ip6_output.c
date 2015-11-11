@@ -1368,10 +1368,18 @@ int ip6_append_data(struct sock *sk, int getfrag(void *from, char *to,
 		cork->length = 0;
 		sk->sk_sndmsg_page = NULL;
 		sk->sk_sndmsg_off = 0;
+#if !defined(CONFIG_BCM_KF_ANDROID) || !defined(CONFIG_BCM_ANDROID)
 		exthdrlen = (opt ? opt->opt_flen : 0) - rt->rt6i_nfheader_len;
+#else
+		exthdrlen = (opt ? opt->opt_flen : 0);
+#endif
 		length += exthdrlen;
 		transhdrlen += exthdrlen;
+#if !defined(CONFIG_BCM_KF_ANDROID) || !defined(CONFIG_BCM_ANDROID)
 		dst_exthdrlen = rt->dst.header_len;
+#else
+		dst_exthdrlen = rt->dst.header_len - rt->rt6i_nfheader_len;
+#endif
 	} else {
 		rt = (struct rt6_info *)cork->dst;
 		fl6 = &inet->cork.fl.u.ip6;

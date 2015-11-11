@@ -11,6 +11,9 @@
 #include <linux/io.h>
 #include <linux/pm_runtime.h>
 #include <linux/pm_domain.h>
+#if defined(CONFIG_BCM_KF_ANDROID) && defined(CONFIG_BCM_ANDROID)
+#include <linux/pm_qos.h>
+#endif
 #include <linux/slab.h>
 #include <linux/err.h>
 #include <linux/sched.h>
@@ -33,6 +36,7 @@
 	__ret;							\
 })
 
+#if !defined(CONFIG_BCM_KF_ANDROID) || !defined(CONFIG_BCM_ANDROID)
 #define GENPD_DEV_TIMED_CALLBACK(genpd, type, callback, dev, field, name)	\
 ({										\
 	ktime_t __start = ktime_get();						\
@@ -46,6 +50,23 @@
 	}									\
 	__retval;								\
 })
+#else
+#define GENPD_DEV_TIMED_CALLBACK(genpd, type, callback, dev, field, name)	\
+({										\
+	ktime_t __start = ktime_get();						\
+	type __retval = GENPD_DEV_CALLBACK(genpd, type, callback, dev);		\
+	s64 __elapsed = ktime_to_ns(ktime_sub(ktime_get(), __start));		\
+	struct gpd_timing_data *__td = &dev_gpd_data(dev)->td;			\
+	if (!__retval && __elapsed > __td->field) {				\
+		__td->field = __elapsed;					\
+		dev_warn(dev, name " latency exceeded, new value %lld ns\n",	\
+			__elapsed);						\
+		genpd->max_off_time_changed = true;				\
+		__td->constraint_changed = true;				\
+	}									\
+	__retval;								\
+})
+#endif
 
 static LIST_HEAD(gpd_list);
 static DEFINE_MUTEX(gpd_list_lock);
@@ -211,6 +232,9 @@ int __pm_genpd_poweron(struct generic_pm_domain *genpd)
 		elapsed_ns = ktime_to_ns(ktime_sub(ktime_get(), time_start));
 		if (elapsed_ns > genpd->power_on_latency_ns) {
 			genpd->power_on_latency_ns = elapsed_ns;
+#if defined(CONFIG_BCM_KF_ANDROID) && defined(CONFIG_BCM_ANDROID)
+			genpd->max_off_time_changed = true;
+#endif
 			if (genpd->name)
 				pr_warning("%s: Power-on latency exceeded, "
 					"new value %lld ns\n", genpd->name,
@@ -247,6 +271,55 @@ int pm_genpd_poweron(struct generic_pm_domain *genpd)
 
 #ifdef CONFIG_PM_RUNTIME
 
+#if defined(CONFIG_BCM_KF_ANDROID) && defined(CONFIG_BCM_ANDROID)
+static int genpd_dev_pm_qos_notifier(struct notifier_block *nb,
+				     unsigned long val, void *ptr)
+{
+	struct generic_pm_domain_data *gpd_data;
+	struct device *dev;
+
+	gpd_data = container_of(nb, struct generic_pm_domain_data, nb);
+
+	mutex_lock(&gpd_data->lock);
+	dev = gpd_data->base.dev;
+	if (!dev) {
+		mutex_unlock(&gpd_data->lock);
+		return NOTIFY_DONE;
+	}
+	mutex_unlock(&gpd_data->lock);
+
+	for (;;) {
+		struct generic_pm_domain *genpd;
+		struct pm_domain_data *pdd;
+
+		spin_lock_irq(&dev->power.lock);
+
+		pdd = dev->power.subsys_data ?
+				dev->power.subsys_data->domain_data : NULL;
+		if (pdd) {
+			to_gpd_data(pdd)->td.constraint_changed = true;
+			genpd = dev_to_genpd(dev);
+		} else {
+			genpd = ERR_PTR(-ENODATA);
+		}
+
+		spin_unlock_irq(&dev->power.lock);
+
+		if (!IS_ERR(genpd)) {
+			mutex_lock(&genpd->lock);
+			genpd->max_off_time_changed = true;
+			mutex_unlock(&genpd->lock);
+		}
+
+		dev = dev->parent;
+		if (!dev || dev->power.ignore_children)
+			break;
+	}
+
+	return NOTIFY_DONE;
+}
+
+#endif
 /**
  * __pm_genpd_save_device - Save the pre-suspend state of a device.
  * @pdd: Domain data of the device to save the state of.
@@ -435,6 +508,9 @@ static int pm_genpd_poweroff(struct generic_pm_domain *genpd)
 		elapsed_ns = ktime_to_ns(ktime_sub(ktime_get(), time_start));
 		if (elapsed_ns > genpd->power_off_latency_ns) {
 			genpd->power_off_latency_ns = elapsed_ns;
+#if defined(CONFIG_BCM_KF_ANDROID) && defined(CONFIG_BCM_ANDROID)
+			genpd->max_off_time_changed = true;
+#endif
 			if (genpd->name)
 				pr_warning("%s: Power-off latency exceeded, "
 					"new value %lld ns\n", genpd->name,
@@ -443,6 +519,7 @@ static int pm_genpd_poweroff(struct generic_pm_domain *genpd)
 	}
 
 	genpd->status = GPD_STATE_POWER_OFF;
+#if !defined(CONFIG_BCM_KF_ANDROID) || !defined(CONFIG_BCM_ANDROID)
 	genpd->power_off_time = ktime_get();
 
 	/* Update PM QoS information for devices in the domain. */
@@ -454,6 +531,7 @@ static int pm_genpd_poweroff(struct generic_pm_domain *genpd)
 					td->restore_state_latency_ns +
 					genpd->power_on_latency_ns);
 	}
+#endif
 
 	list_for_each_entry(link, &genpd->slave_links, slave_node) {
 		genpd_sd_counter_dec(link->master);
@@ -514,9 +592,11 @@ static int pm_genpd_runtime_suspend(struct device *dev)
 	if (ret)
 		return ret;
 
+#if !defined(CONFIG_BCM_KF_ANDROID) || !defined(CONFIG_BCM_ANDROID)
 	pm_runtime_update_max_time_suspended(dev,
 				dev_gpd_data(dev)->td.start_latency_ns);
 
+#endif
 	/*
 	 * If power.irq_safe is set, this routine will be run with interrupts
 	 * off, so it can't use mutexes.
@@ -613,6 +693,14 @@ void pm_genpd_poweroff_unused(void)
 
 #else
 
+#if defined(CONFIG_BCM_KF_ANDROID) && defined(CONFIG_BCM_ANDROID)
+static inline int genpd_dev_pm_qos_notifier(struct notifier_block *nb,
+					    unsigned long val, void *ptr)
+{
+	return NOTIFY_DONE;
+}
+
+#endif
 static inline void genpd_power_off_work_fn(struct work_struct *work) {}
 
 #define pm_genpd_runtime_suspend	NULL
@@ -1209,12 +1297,26 @@ int __pm_genpd_add_device(struct generic_pm_domain *genpd, struct device *dev,
 	if (IS_ERR_OR_NULL(genpd) || IS_ERR_OR_NULL(dev))
 		return -EINVAL;
 
+#if !defined(CONFIG_BCM_KF_ANDROID) || !defined(CONFIG_BCM_ANDROID)
 	genpd_acquire_lock(genpd);
+#else
+	gpd_data = kzalloc(sizeof(*gpd_data), GFP_KERNEL);
+	if (!gpd_data)
+		return -ENOMEM;
+#endif
 
+#if !defined(CONFIG_BCM_KF_ANDROID) || !defined(CONFIG_BCM_ANDROID)
 	if (genpd->status == GPD_STATE_POWER_OFF) {
 		ret = -EINVAL;
 		goto out;
 	}
+#else
+	mutex_init(&gpd_data->lock);
+	gpd_data->nb.notifier_call = genpd_dev_pm_qos_notifier;
+	dev_pm_qos_add_notifier(dev, &gpd_data->nb);
+
+	genpd_acquire_lock(genpd);
+#endif
 
 	if (genpd->prepared_count > 0) {
 		ret = -EAGAIN;
@@ -1227,26 +1329,59 @@ int __pm_genpd_add_device(struct generic_pm_domain *genpd, struct device *dev,
 			goto out;
 		}
 
+#if !defined(CONFIG_BCM_KF_ANDROID) || !defined(CONFIG_BCM_ANDROID)
 	gpd_data = kzalloc(sizeof(*gpd_data), GFP_KERNEL);
 	if (!gpd_data) {
 		ret = -ENOMEM;
 		goto out;
 	}
 
+#endif
 	genpd->device_count++;
+#if defined(CONFIG_BCM_KF_ANDROID) && defined(CONFIG_BCM_ANDROID)
+	genpd->max_off_time_changed = true;
+#endif
 
+#if !defined(CONFIG_BCM_KF_ANDROID) || !defined(CONFIG_BCM_ANDROID)
 	dev->pm_domain = &genpd->domain;
+#endif
 	dev_pm_get_subsys_data(dev);
+#if defined(CONFIG_BCM_KF_ANDROID) && defined(CONFIG_BCM_ANDROID)
+
+	mutex_lock(&gpd_data->lock);
+	spin_lock_irq(&dev->power.lock);
+	dev->pm_domain = &genpd->domain;
+#endif
 	dev->power.subsys_data->domain_data = &gpd_data->base;
 	gpd_data->base.dev = dev;
+#if !defined(CONFIG_BCM_KF_ANDROID) || !defined(CONFIG_BCM_ANDROID)
 	gpd_data->need_restore = false;
+#endif
 	list_add_tail(&gpd_data->base.list_node, &genpd->dev_list);
+#if defined(CONFIG_BCM_KF_ANDROID) && defined(CONFIG_BCM_ANDROID)
+	gpd_data->need_restore = genpd->status == GPD_STATE_POWER_OFF;
+#endif
 	if (td)
 		gpd_data->td = *td;
 
+#if defined(CONFIG_BCM_KF_ANDROID) && defined(CONFIG_BCM_ANDROID)
+	gpd_data->td.constraint_changed = true;
+	gpd_data->td.effective_constraint_ns = -1;
+	spin_unlock_irq(&dev->power.lock);
+	mutex_unlock(&gpd_data->lock);
+
+	genpd_release_lock(genpd);
+
+	return 0;
+
+#endif
  out:
 	genpd_release_lock(genpd);
 
+#if defined(CONFIG_BCM_KF_ANDROID) && defined(CONFIG_BCM_ANDROID)
+	dev_pm_qos_remove_notifier(dev, &gpd_data->nb);
+	kfree(gpd_data);
+#endif
 	return ret;
 }
 
@@ -1290,12 +1425,25 @@ int __pm_genpd_of_add_device(struct device_node *genpd_node, struct device *dev,
 int pm_genpd_remove_device(struct generic_pm_domain *genpd,
 			   struct device *dev)
 {
+#if defined(CONFIG_BCM_KF_ANDROID) && defined(CONFIG_BCM_ANDROID)
+	struct generic_pm_domain_data *gpd_data;
+#endif
 	struct pm_domain_data *pdd;
+#if !defined(CONFIG_BCM_KF_ANDROID) || !defined(CONFIG_BCM_ANDROID)
 	int ret = -EINVAL;
+#else
+	int ret = 0;
+#endif
 
 	dev_dbg(dev, "%s()\n", __func__);
 
+#if !defined(CONFIG_BCM_KF_ANDROID) || !defined(CONFIG_BCM_ANDROID)
 	if (IS_ERR_OR_NULL(genpd) || IS_ERR_OR_NULL(dev))
+#else
+	if (IS_ERR_OR_NULL(genpd) || IS_ERR_OR_NULL(dev)
+	    ||  IS_ERR_OR_NULL(dev->pm_domain)
+	    ||  pd_to_genpd(dev->pm_domain) != genpd)
+#endif
 		return -EINVAL;
 
 	genpd_acquire_lock(genpd);
@@ -1305,21 +1453,51 @@ int pm_genpd_remove_device(struct generic_pm_domain *genpd,
 		goto out;
 	}
 
+#if !defined(CONFIG_BCM_KF_ANDROID) || !defined(CONFIG_BCM_ANDROID)
 	list_for_each_entry(pdd, &genpd->dev_list, list_node) {
 		if (pdd->dev != dev)
 			continue;
+#else
+	genpd->device_count--;
+	genpd->max_off_time_changed = true;
+#endif
 
+#if !defined(CONFIG_BCM_KF_ANDROID) || !defined(CONFIG_BCM_ANDROID)
 		list_del_init(&pdd->list_node);
 		pdd->dev = NULL;
 		dev_pm_put_subsys_data(dev);
 		dev->pm_domain = NULL;
 		kfree(to_gpd_data(pdd));
+#else
+	spin_lock_irq(&dev->power.lock);
+	dev->pm_domain = NULL;
+	pdd = dev->power.subsys_data->domain_data;
+	list_del_init(&pdd->list_node);
+	dev->power.subsys_data->domain_data = NULL;
+	spin_unlock_irq(&dev->power.lock);
+#endif
 
+#if !defined(CONFIG_BCM_KF_ANDROID) || !defined(CONFIG_BCM_ANDROID)
 		genpd->device_count--;
+#else
+	gpd_data = to_gpd_data(pdd);
+	mutex_lock(&gpd_data->lock);
+	pdd->dev = NULL;
+	mutex_unlock(&gpd_data->lock);
+#endif
 
+#if !defined(CONFIG_BCM_KF_ANDROID) || !defined(CONFIG_BCM_ANDROID)
 		ret = 0;
 		break;
 	}
+#else
+	genpd_release_lock(genpd);
+
+	dev_pm_qos_remove_notifier(dev, &gpd_data->nb);
+	kfree(gpd_data);
+	dev_pm_put_subsys_data(dev);
+	return 0;
+#endif
 
  out:
 	genpd_release_lock(genpd);
@@ -1347,6 +1525,28 @@ void pm_genpd_dev_always_on(struct device *dev, bool val)
 }
 EXPORT_SYMBOL_GPL(pm_genpd_dev_always_on);
 
+#if defined(CONFIG_BCM_KF_ANDROID) && defined(CONFIG_BCM_ANDROID)
+/**
+ * pm_genpd_dev_need_restore - Set/unset the device's "need restore" flag.
+ * @dev: Device to set/unset the flag for.
+ * @val: The new value of the device's "need restore" flag.
+ */
+void pm_genpd_dev_need_restore(struct device *dev, bool val)
+{
+	struct pm_subsys_data *psd;
+	unsigned long flags;
+
+	spin_lock_irqsave(&dev->power.lock, flags);
+
+	psd = dev_to_psd(dev);
+	if (psd && psd->domain_data)
+		to_gpd_data(psd->domain_data)->need_restore = val;
+
+	spin_unlock_irqrestore(&dev->power.lock, flags);
+}
+EXPORT_SYMBOL_GPL(pm_genpd_dev_need_restore);
+
+#endif
 /**
  * pm_genpd_add_subdomain - Add a subdomain to an I/O PM domain.
  * @genpd: Master PM domain to add the subdomain to.
@@ -1378,7 +1578,11 @@ int pm_genpd_add_subdomain(struct generic_pm_domain *genpd,
 		goto out;
 	}
 
+#if !defined(CONFIG_BCM_KF_ANDROID) || !defined(CONFIG_BCM_ANDROID)
 	list_for_each_entry(link, &genpd->slave_links, slave_node) {
+#else
+	list_for_each_entry(link, &genpd->master_links, master_node) {
+#endif
 		if (link->slave == subdomain && link->master == genpd) {
 			ret = -EINVAL;
 			goto out;
@@ -1690,6 +1894,9 @@ void pm_genpd_init(struct generic_pm_domain *genpd,
 	genpd->resume_count = 0;
 	genpd->device_count = 0;
 	genpd->max_off_time_ns = -1;
+#if defined(CONFIG_BCM_KF_ANDROID) && defined(CONFIG_BCM_ANDROID)
+	genpd->max_off_time_changed = true;
+#endif
 	genpd->domain.ops.runtime_suspend = pm_genpd_runtime_suspend;
 	genpd->domain.ops.runtime_resume = pm_genpd_runtime_resume;
 	genpd->domain.ops.runtime_idle = pm_generic_runtime_idle;

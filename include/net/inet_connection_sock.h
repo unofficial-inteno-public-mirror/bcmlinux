@@ -317,6 +317,9 @@ extern void inet_csk_reqsk_queue_prune(struct sock *parent,
 				       const unsigned long max_rto);
 
 extern void inet_csk_destroy_sock(struct sock *sk);
+#if defined(CONFIG_BCM_KF_ANDROID) && defined(CONFIG_BCM_ANDROID)
+extern void inet_csk_prepare_forced_close(struct sock *sk);
+#endif
 
 /*
  * LISTEN is a special case for poll..

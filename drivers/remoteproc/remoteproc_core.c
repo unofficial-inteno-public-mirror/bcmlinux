@@ -643,17 +643,23 @@ static int rproc_handle_carveout(struct rproc *rproc,
 	dev_dbg(dev, "carveout rsc: da %x, pa %x, len %x, flags %x\n",
 			rsc->da, rsc->pa, rsc->len, rsc->flags);
 
+#if !defined(CONFIG_BCM_KF_ANDROID) || !defined(CONFIG_BCM_ANDROID)
 	mapping = kzalloc(sizeof(*mapping), GFP_KERNEL);
 	if (!mapping) {
 		dev_err(dev, "kzalloc mapping failed\n");
 		return -ENOMEM;
 	}
 
+#endif
 	carveout = kzalloc(sizeof(*carveout), GFP_KERNEL);
 	if (!carveout) {
 		dev_err(dev, "kzalloc carveout failed\n");
+#if !defined(CONFIG_BCM_KF_ANDROID) || !defined(CONFIG_BCM_ANDROID)
 		ret = -ENOMEM;
 		goto free_mapping;
+#else
+		return -ENOMEM;
+#endif
 	}
 
 	va = dma_alloc_coherent(dev, rsc->len, &dma, GFP_KERNEL);
@@ -683,11 +689,24 @@ static int rproc_handle_carveout(struct rproc *rproc,
 	 * physical address in this case.
 	 */
 	if (rproc->domain) {
+#if defined(CONFIG_BCM_KF_ANDROID) && defined(CONFIG_BCM_ANDROID)
+		mapping = kzalloc(sizeof(*mapping), GFP_KERNEL);
+		if (!mapping) {
+			dev_err(dev, "kzalloc mapping failed\n");
+			ret = -ENOMEM;
+			goto dma_free;
+		}
+
+#endif
 		ret = iommu_map(rproc->domain, rsc->da, dma, rsc->len,
 								rsc->flags);
 		if (ret) {
 			dev_err(dev, "iommu_map failed: %d\n", ret);
+#if !defined(CONFIG_BCM_KF_ANDROID) || !defined(CONFIG_BCM_ANDROID)
 			goto dma_free;
+#else
+			goto free_mapping;
+#endif
 		}
 
 		/*
@@ -728,12 +747,18 @@ static int rproc_handle_carveout(struct rproc *rproc,
 
 	return 0;
 
+#if defined(CONFIG_BCM_KF_ANDROID) && defined(CONFIG_BCM_ANDROID)
+free_mapping:
+	kfree(mapping);
+#endif
 dma_free:
 	dma_free_coherent(dev, rsc->len, va, dma);
 free_carv:
 	kfree(carveout);
+#if !defined(CONFIG_BCM_KF_ANDROID) || !defined(CONFIG_BCM_ANDROID)
 free_mapping:
 	kfree(mapping);
+#endif
 	return ret;
 }
 

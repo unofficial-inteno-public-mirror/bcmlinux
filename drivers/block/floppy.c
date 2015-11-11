@@ -4161,6 +4161,9 @@ static int __init floppy_init(void)
 
 		disks[dr]->queue = blk_init_queue(do_fd_request, &floppy_lock);
 		if (!disks[dr]->queue) {
+#if defined(CONFIG_BCM_KF_ANDROID) && defined(CONFIG_BCM_ANDROID)
+			put_disk(disks[dr]);
+#endif
 			err = -ENOMEM;
 			goto out_put_disk;
 		}

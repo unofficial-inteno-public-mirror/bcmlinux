@@ -36,13 +36,21 @@ struct node_header {
 	__le32 padding;
 } __packed;
 
+#if !defined(CONFIG_BCM_KF_ANDROID) || !defined(CONFIG_BCM_ANDROID)
 struct node {
+#else
+struct btree_node {
+#endif
 	struct node_header header;
 	__le64 keys[0];
 } __packed;
 
 
+#if !defined(CONFIG_BCM_KF_ANDROID) || !defined(CONFIG_BCM_ANDROID)
 void inc_children(struct dm_transaction_manager *tm, struct node *n,
+#else
+void inc_children(struct dm_transaction_manager *tm, struct btree_node *n,
+#endif
 		  struct dm_btree_value_type *vt);
 
 int new_block(struct dm_btree_info *info, struct dm_block **result);
@@ -64,7 +72,11 @@ struct ro_spine {
 void init_ro_spine(struct ro_spine *s, struct dm_btree_info *info);
 int exit_ro_spine(struct ro_spine *s);
 int ro_step(struct ro_spine *s, dm_block_t new_child);
+#if !defined(CONFIG_BCM_KF_ANDROID) || !defined(CONFIG_BCM_ANDROID)
 struct node *ro_node(struct ro_spine *s);
+#else
+struct btree_node *ro_node(struct ro_spine *s);
+#endif
 
 struct shadow_spine {
 	struct dm_btree_info *info;
@@ -98,17 +110,29 @@ int shadow_root(struct shadow_spine *s);
 /*
  * Some inlines.
  */
+#if !defined(CONFIG_BCM_KF_ANDROID) || !defined(CONFIG_BCM_ANDROID)
 static inline __le64 *key_ptr(struct node *n, uint32_t index)
+#else
+static inline __le64 *key_ptr(struct btree_node *n, uint32_t index)
+#endif
 {
 	return n->keys + index;
 }
 
+#if !defined(CONFIG_BCM_KF_ANDROID) || !defined(CONFIG_BCM_ANDROID)
 static inline void *value_base(struct node *n)
+#else
+static inline void *value_base(struct btree_node *n)
+#endif
 {
 	return &n->keys[le32_to_cpu(n->header.max_entries)];
 }
 
+#if !defined(CONFIG_BCM_KF_ANDROID) || !defined(CONFIG_BCM_ANDROID)
 static inline void *value_ptr(struct node *n, uint32_t index)
+#else
+static inline void *value_ptr(struct btree_node *n, uint32_t index)
+#endif
 {
 	uint32_t value_size = le32_to_cpu(n->header.value_size);
 	return value_base(n) + (value_size * index);
@@ -117,7 +141,11 @@ static inline void *value_ptr(struct node *n, uint32_t index)
 /*
  * Assumes the values are suitably-aligned and converts to core format.
  */
+#if !defined(CONFIG_BCM_KF_ANDROID) || !defined(CONFIG_BCM_ANDROID)
 static inline uint64_t value64(struct node *n, uint32_t index)
+#else
+static inline uint64_t value64(struct btree_node *n, uint32_t index)
+#endif
 {
 	__le64 *values_le = value_base(n);
 
@@ -127,7 +155,11 @@ static inline uint64_t value64(struct node *n, uint32_t index)
 /*
  * Searching for a key within a single node.
  */
+#if !defined(CONFIG_BCM_KF_ANDROID) || !defined(CONFIG_BCM_ANDROID)
 int lower_bound(struct node *n, uint64_t key);
+#else
+int lower_bound(struct btree_node *n, uint64_t key);
+#endif
 
 extern struct dm_block_validator btree_node_validator;
 

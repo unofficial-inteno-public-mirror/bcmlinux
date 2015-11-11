@@ -127,6 +127,9 @@ struct sigaction {
 	__sigrestore_t sa_restorer;
 	sigset_t sa_mask;		/* mask last for extensibility */
 };
+#if defined(CONFIG_BCM_KF_ANDROID) && defined(CONFIG_BCM_ANDROID)
+#define __ARCH_HAS_SA_RESTORER
+#endif
 
 struct k_sigaction {
 	struct sigaction sa;

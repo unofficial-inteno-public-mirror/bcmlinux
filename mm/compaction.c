@@ -736,7 +736,11 @@ static int compact_node(int nid)
 }
 
 /* Compact all nodes in the system */
+#if !defined(CONFIG_BCM_KF_ANDROID) || !defined(CONFIG_BCM_ANDROID)
 static int compact_nodes(void)
+#else
+static void compact_nodes(void)
+#endif
 {
 	int nid;
 
@@ -745,8 +749,10 @@ static int compact_nodes(void)
 
 	for_each_online_node(nid)
 		compact_node(nid);
+#if !defined(CONFIG_BCM_KF_ANDROID) || !defined(CONFIG_BCM_ANDROID)
 
 	return COMPACT_COMPLETE;
+#endif
 }
 
 /* The written value is actually unused, all memory is compacted */
@@ -757,7 +763,11 @@ int sysctl_compaction_handler(struct ctl_table *table, int write,
 			void __user *buffer, size_t *length, loff_t *ppos)
 {
 	if (write)
+#if !defined(CONFIG_BCM_KF_ANDROID) || !defined(CONFIG_BCM_ANDROID)
 		return compact_nodes();
+#else
+		compact_nodes();
+#endif
 
 	return 0;
 }

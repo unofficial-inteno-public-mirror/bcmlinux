@@ -770,6 +770,7 @@ void rfkill_pause_polling(struct rfkill *rfkill)
 }
 EXPORT_SYMBOL(rfkill_pause_polling);
 
+#if !defined(CONFIG_BCM_KF_ANDROID) || !defined(CONFIG_BCM_ANDROID)
 void rfkill_resume_polling(struct rfkill *rfkill)
 {
 	BUG_ON(!rfkill);
@@ -804,14 +805,59 @@ static int rfkill_resume(struct device *dev)
 
 	return 0;
 }
+#else /* ANDROID */
+#ifdef CONFIG_RFKILL_PM
+void rfkill_resume_polling(struct rfkill *rfkill)
+{
+	BUG_ON(!rfkill);
+
+	if (!rfkill->ops->poll)
+		return;
+
+	schedule_work(&rfkill->poll_work.work);
+}
+EXPORT_SYMBOL(rfkill_resume_polling);
+
+static int rfkill_suspend(struct device *dev, pm_message_t state)
+{
+	struct rfkill *rfkill = to_rfkill(dev);
+
+	rfkill_pause_polling(rfkill);
+
+	return 0;
+}
+
+static int rfkill_resume(struct device *dev)
+{
+	struct rfkill *rfkill = to_rfkill(dev);
+	bool cur;
+
+	if (!rfkill->persistent) {
+		cur = !!(rfkill->state & RFKILL_BLOCK_SW);
+		rfkill_set_block(rfkill, cur);
+	}
+
+	rfkill_resume_polling(rfkill);
+
+	return 0;
+}
+#endif
+#endif /* ANDROID */
 
 static struct class rfkill_class = {
 	.name		= "rfkill",
 	.dev_release	= rfkill_release,
 	.dev_attrs	= rfkill_dev_attrs,
 	.dev_uevent	= rfkill_dev_uevent,
+#if !defined(CONFIG_BCM_KF_ANDROID) || !defined(CONFIG_BCM_ANDROID)
 	.suspend	= rfkill_suspend,
 	.resume		= rfkill_resume,
+#else /* ANDROID */
+#ifdef CONFIG_RFKILL_PM
+	.suspend	= rfkill_suspend,
+	.resume		= rfkill_resume,
+#endif
+#endif /* ANDROID */
 };
 
 bool rfkill_blocked(struct rfkill *rfkill)

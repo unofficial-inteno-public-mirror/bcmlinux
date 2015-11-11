@@ -11479,3 +11479,4 @@ void brcmnand_release(struct mtd_info *mtd)
 
 }
 
+#endif // CONFIG_BCM_KF_MTD_BCMNAND

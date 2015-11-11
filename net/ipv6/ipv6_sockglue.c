@@ -828,6 +828,9 @@ pref_skip_coa:
 		if (val < 0 || val > 255)
 			goto e_inval;
 		np->min_hopcount = val;
+#if defined(CONFIG_BCM_KF_ANDROID) && defined(CONFIG_BCM_ANDROID)
+		retv = 0;
+#endif
 		break;
 	case IPV6_DONTFRAG:
 		np->dontfrag = valbool;

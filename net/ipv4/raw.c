@@ -131,18 +131,41 @@ found:
  *	0 - deliver
  *	1 - block
  */
+#if !defined(CONFIG_BCM_KF_ANDROID) || !defined(CONFIG_BCM_ANDROID)
 static __inline__ int icmp_filter(struct sock *sk, struct sk_buff *skb)
+#else
+static int icmp_filter(const struct sock *sk, const struct sk_buff *skb)
+#endif
 {
+#if !defined(CONFIG_BCM_KF_ANDROID) || !defined(CONFIG_BCM_ANDROID)
 	int type;
+#else
+	struct icmphdr _hdr;
+	const struct icmphdr *hdr;
+#endif
 
+#if !defined(CONFIG_BCM_KF_ANDROID) || !defined(CONFIG_BCM_ANDROID)
 	if (!pskb_may_pull(skb, sizeof(struct icmphdr)))
+#else
+	hdr = skb_header_pointer(skb, skb_transport_offset(skb),
+				 sizeof(_hdr), &_hdr);
+	if (!hdr)
+#endif
 		return 1;
 
+#if !defined(CONFIG_BCM_KF_ANDROID) || !defined(CONFIG_BCM_ANDROID)
 	type = icmp_hdr(skb)->type;
 	if (type < 32) {
+#else
+	if (hdr->type < 32) {
+#endif
 		__u32 data = raw_sk(sk)->filter.data;
 
+#if !defined(CONFIG_BCM_KF_ANDROID) || !defined(CONFIG_BCM_ANDROID)
 		return ((1 << type) & data) != 0;
+#else
+		return ((1U << hdr->type) & data) != 0;
+#endif
 	}
 
 	/* Do not block unknown ICMP types */

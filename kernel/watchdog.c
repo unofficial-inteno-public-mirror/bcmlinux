@@ -34,6 +34,7 @@ static DEFINE_PER_CPU(struct task_struct *, softlockup_watchdog);
 static DEFINE_PER_CPU(struct hrtimer, watchdog_hrtimer);
 static DEFINE_PER_CPU(bool, softlockup_touch_sync);
 static DEFINE_PER_CPU(bool, soft_watchdog_warn);
+#if !defined(CONFIG_BCM_KF_ANDROID) || !defined(CONFIG_BCM_ANDROID)
 #ifdef CONFIG_HARDLOCKUP_DETECTOR
 static DEFINE_PER_CPU(bool, hard_watchdog_warn);
 static DEFINE_PER_CPU(bool, watchdog_nmi_touch);
@@ -41,6 +42,18 @@ static DEFINE_PER_CPU(unsigned long, hrtimer_interrupts);
 static DEFINE_PER_CPU(unsigned long, hrtimer_interrupts_saved);
 static DEFINE_PER_CPU(struct perf_event *, watchdog_ev);
 #endif
+#else /* ANDROID */
+#ifdef CONFIG_HARDLOCKUP_DETECTOR
+static DEFINE_PER_CPU(bool, hard_watchdog_warn);
+static DEFINE_PER_CPU(bool, watchdog_nmi_touch);
+static DEFINE_PER_CPU(unsigned long, hrtimer_interrupts);
+static DEFINE_PER_CPU(unsigned long, hrtimer_interrupts_saved);
+static DEFINE_PER_CPU(struct perf_event *, watchdog_ev);
+#endif
+#ifdef CONFIG_HARDLOCKUP_DETECTOR_NMI
+static DEFINE_PER_CPU(struct perf_event *, watchdog_ev);
+#endif
+#endif /* ANDROID */
 
 /* boot commands */
 /*
@@ -112,7 +125,11 @@ static unsigned long get_timestamp(int this_cpu)
 	return cpu_clock(this_cpu) >> 30LL;  /* 2^30 ~= 10^9 */
 }
 
+#if !defined(CONFIG_BCM_KF_ANDROID) || !defined(CONFIG_BCM_ANDROID)
 static unsigned long get_sample_period(void)
+#else
+static u64 get_sample_period(void)
+#endif
 {
 	/*
 	 * convert watchdog_thresh from seconds to ns
@@ -121,7 +138,11 @@ static unsigned long get_sample_period(void)
 	 * and hard thresholds) to increment before the
 	 * hardlockup detector generates a warning
 	 */
+#if !defined(CONFIG_BCM_KF_ANDROID) || !defined(CONFIG_BCM_ANDROID)
 	return get_softlockup_thresh() * (NSEC_PER_SEC / 5);
+#else
+	return get_softlockup_thresh() * ((u64)NSEC_PER_SEC / 5);
+#endif
 }
 
 /* Commands for resetting the watchdog */
@@ -174,6 +195,7 @@ void touch_softlockup_watchdog_sync(void)
 	__raw_get_cpu_var(watchdog_touch_ts) = 0;
 }
 
+#if !defined(CONFIG_BCM_KF_ANDROID) || !defined(CONFIG_BCM_ANDROID)
 #ifdef CONFIG_HARDLOCKUP_DETECTOR
 /* watchdog detector functions */
 static int is_hardlockup(void)
@@ -187,7 +209,79 @@ static int is_hardlockup(void)
 	return 0;
 }
 #endif
+#else /* ANDROID */
+#ifdef CONFIG_HARDLOCKUP_DETECTOR_NMI
+/* watchdog detector functions */
+static int is_hardlockup(void)
+{
+	unsigned long hrint = __this_cpu_read(hrtimer_interrupts);
 
+	if (__this_cpu_read(hrtimer_interrupts_saved) == hrint)
+		return 1;
+
+	__this_cpu_write(hrtimer_interrupts_saved, hrint);
+	return 0;
+}
+#endif
+#endif /* ANDROID */
+
+#if defined(CONFIG_BCM_KF_ANDROID) && defined(CONFIG_BCM_ANDROID)
+#ifdef CONFIG_HARDLOCKUP_DETECTOR_OTHER_CPU
+static int is_hardlockup_other_cpu(int cpu)
+{
+	unsigned long hrint = per_cpu(hrtimer_interrupts, cpu);
+
+	if (per_cpu(hrtimer_interrupts_saved, cpu) == hrint)
+		return 1;
+
+	per_cpu(hrtimer_interrupts_saved, cpu) = hrint;
+	return 0;
+}
+
+static void watchdog_check_hardlockup_other_cpu(void)
+{
+	int cpu;
+
+	/*
+	 * Test for hardlockups every 3 samples.  The sample period is
+	 *  watchdog_thresh * 2 / 5, so 3 samples gets us back to slightly over
+	 *  watchdog_thresh (over by 20%).
+	 */
+	if (__this_cpu_read(hrtimer_interrupts) % 3 != 0)
+		return;
+
+	/* check for a hardlockup on the next cpu */
+	cpu = cpumask_next(smp_processor_id(), cpu_online_mask);
+	if (cpu >= nr_cpu_ids)
+		cpu = cpumask_first(cpu_online_mask);
+	if (cpu == smp_processor_id())
+		return;
+
+	if (per_cpu(watchdog_nmi_touch, cpu) == true) {
+		per_cpu(watchdog_nmi_touch, cpu) = false;
+		return;
+	}
+
+	if (is_hardlockup_other_cpu(cpu)) {
+		/* only warn once */
+		if (per_cpu(hard_watchdog_warn, cpu) == true)
+			return;
+
+		if (hardlockup_panic)
+			panic("Watchdog detected hard LOCKUP on cpu %d", cpu);
+		else
+			WARN(1, "Watchdog detected hard LOCKUP on cpu %d", cpu);
+
+		per_cpu(hard_watchdog_warn, cpu) = true;
+	} else {
+		per_cpu(hard_watchdog_warn, cpu) = false;
+	}
+}
+#else
+static inline void watchdog_check_hardlockup_other_cpu(void) { return; }
+#endif
+
+#endif
 static int is_softlockup(unsigned long touch_ts)
 {
 	unsigned long now = get_timestamp(smp_processor_id());
@@ -199,6 +293,7 @@ static int is_softlockup(unsigned long touch_ts)
 	return 0;
 }
 
+#if !defined(CONFIG_BCM_KF_ANDROID) || !defined(CONFIG_BCM_ANDROID)
 #ifdef CONFIG_HARDLOCKUP_DETECTOR
 
 static DEFINE_RAW_SPINLOCK(watchdog_output_lock);
@@ -265,6 +360,77 @@ static void watchdog_interrupt_count(void)
 #else
 static inline void watchdog_interrupt_count(void) { return; }
 #endif /* CONFIG_HARDLOCKUP_DETECTOR */
+#else /* ANDROID */
+#ifdef CONFIG_HARDLOCKUP_DETECTOR_NMI
+
+static DEFINE_RAW_SPINLOCK(watchdog_output_lock);
+
+static struct perf_event_attr wd_hw_attr = {
+	.type		= PERF_TYPE_HARDWARE,
+	.config		= PERF_COUNT_HW_CPU_CYCLES,
+	.size		= sizeof(struct perf_event_attr),
+	.pinned		= 1,
+	.disabled	= 1,
+};
+
+/* Callback function for perf event subsystem */
+static void watchdog_overflow_callback(struct perf_event *event,
+		 struct perf_sample_data *data,
+		 struct pt_regs *regs)
+{
+	/* Ensure the watchdog never gets throttled */
+	event->hw.interrupts = 0;
+
+	if (__this_cpu_read(watchdog_nmi_touch) == true) {
+		__this_cpu_write(watchdog_nmi_touch, false);
+		return;
+	}
+
+	/* check for a hardlockup
+	 * This is done by making sure our timer interrupt
+	 * is incrementing.  The timer interrupt should have
+	 * fired multiple times before we overflow'd.  If it hasn't
+	 * then this is a good indication the cpu is stuck
+	 */
+	if (is_hardlockup()) {
+		int this_cpu = smp_processor_id();
+
+		/* only print hardlockups once */
+		if (__this_cpu_read(hard_watchdog_warn) == true)
+			return;
+
+		/*
+		 * If early-printk is enabled then make sure we do not
+		 * lock up in printk() and kill console logging:
+		 */
+		printk_kill();
+
+		if (hardlockup_panic) {
+			panic("Watchdog detected hard LOCKUP on cpu %d", this_cpu);
+		} else {
+			raw_spin_lock(&watchdog_output_lock);
+			WARN(1, "Watchdog detected hard LOCKUP on cpu %d", this_cpu);
+			raw_spin_unlock(&watchdog_output_lock);
+		}
+
+		__this_cpu_write(hard_watchdog_warn, true);
+		return;
+	}
+
+	__this_cpu_write(hard_watchdog_warn, false);
+	return;
+}
+#endif
+
+#ifdef CONFIG_HARDLOCKUP_DETECTOR
+static void watchdog_interrupt_count(void)
+{
+	__this_cpu_inc(hrtimer_interrupts);
+}
+#else
+static inline void watchdog_interrupt_count(void) { return; }
+#endif /* CONFIG_HARDLOCKUP_DETECTOR */
+#endif /* ANDROID */
 
 /* watchdog kicker functions */
 static enum hrtimer_restart watchdog_timer_fn(struct hrtimer *hrtimer)
@@ -276,6 +442,11 @@ static enum hrtimer_restart watchdog_timer_fn(struct hrtimer *hrtimer)
 	/* kick the hardlockup detector */
 	watchdog_interrupt_count();
 
+#if defined(CONFIG_BCM_KF_ANDROID) && defined(CONFIG_BCM_ANDROID)
+	/* test for hardlockups on the next cpu */
+	watchdog_check_hardlockup_other_cpu();
+
+#endif
 	/* kick the softlockup detector */
 	wake_up_process(__this_cpu_read(softlockup_watchdog));
 
@@ -370,6 +541,7 @@ static int watchdog(void *unused)
 }
 
 
+#if !defined(CONFIG_BCM_KF_ANDROID) || !defined(CONFIG_BCM_ANDROID)
 #ifdef CONFIG_HARDLOCKUP_DETECTOR
 static int watchdog_nmi_enable(int cpu)
 {
@@ -432,6 +604,70 @@ static void watchdog_nmi_disable(int cpu)
 static int watchdog_nmi_enable(int cpu) { return 0; }
 static void watchdog_nmi_disable(int cpu) { return; }
 #endif /* CONFIG_HARDLOCKUP_DETECTOR */
+#else /* ANDROID */
+#ifdef CONFIG_HARDLOCKUP_DETECTOR_NMI
+static int watchdog_nmi_enable(int cpu)
+{
+	struct perf_event_attr *wd_attr;
+	struct perf_event *event = per_cpu(watchdog_ev, cpu);
+
+	/* is it already setup and enabled? */
+	if (event && event->state > PERF_EVENT_STATE_OFF)
+		goto out;
+
+	/* it is setup but not enabled */
+	if (event != NULL)
+		goto out_enable;
+
+	wd_attr = &wd_hw_attr;
+	wd_attr->sample_period = hw_nmi_get_sample_period(watchdog_thresh);
+
+	/* Try to register using hardware perf events */
+	event = perf_event_create_kernel_counter(wd_attr, cpu, NULL, watchdog_overflow_callback, NULL);
+	if (!IS_ERR(event)) {
+		pr_info("enabled, takes one hw-pmu counter.\n");
+		goto out_save;
+	}
+
+
+	/* vary the KERN level based on the returned errno */
+	if (PTR_ERR(event) == -EOPNOTSUPP)
+		pr_info("disabled (cpu%i): not supported (no LAPIC?)\n", cpu);
+	else if (PTR_ERR(event) == -ENOENT)
+		pr_warning("disabled (cpu%i): hardware events not enabled\n",
+			 cpu);
+	else
+		pr_err("disabled (cpu%i): unable to create perf event: %ld\n",
+			cpu, PTR_ERR(event));
+	return PTR_ERR(event);
+
+	/* success path */
+out_save:
+	per_cpu(watchdog_ev, cpu) = event;
+out_enable:
+	perf_event_enable(per_cpu(watchdog_ev, cpu));
+out:
+	return 0;
+}
+
+static void watchdog_nmi_disable(int cpu)
+{
+	struct perf_event *event = per_cpu(watchdog_ev, cpu);
+
+	if (event) {
+		perf_event_disable(event);
+		per_cpu(watchdog_ev, cpu) = NULL;
+
+		/* should be in cleanup, but blocks oprofile */
+		perf_event_release_kernel(event);
+	}
+	return;
+}
+#else
+static int watchdog_nmi_enable(int cpu) { return 0; }
+static void watchdog_nmi_disable(int cpu) { return; }
+#endif /* CONFIG_HARDLOCKUP_DETECTOR */
+#endif /* ANDROID */
 
 /* prepare/enable/disable routines */
 static void watchdog_prepare_cpu(int cpu)
@@ -442,6 +678,20 @@ static void watchdog_prepare_cpu(int cpu)
 	hrtimer_init(hrtimer, CLOCK_MONOTONIC, HRTIMER_MODE_REL);
 	hrtimer->function = watchdog_timer_fn;
 	hrtimer->irqsafe = 1;
+#if defined(CONFIG_BCM_KF_ANDROID) && defined(CONFIG_BCM_ANDROID)
+
+#ifdef CONFIG_HARDLOCKUP_DETECTOR_OTHER_CPU
+	/*
+	 * The new cpu will be marked online before the first hrtimer interrupt
+	 * runs on it.  If another cpu tests for a hardlockup on the new cpu
+	 * before it has run its first hrtimer, it will get a false positive.
+	 * Touch the watchdog on the new cpu to delay the first check for at
+	 * least 3 sampling periods to guarantee one hrtimer has run on the new
+	 * cpu.
+	 */
+	per_cpu(watchdog_nmi_touch, cpu) = true;
+#endif
+#endif
 }
 
 static int watchdog_enable(int cpu)
