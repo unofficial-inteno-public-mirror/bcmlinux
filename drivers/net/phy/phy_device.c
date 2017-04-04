@@ -674,6 +674,9 @@ void phy_detach(struct phy_device *phydev)
 {
 	int i;
 
+	if (phydev->drv && phydev->drv->detach)
+		phydev->drv->detach(phydev);
+
 	if (phydev->bus->dev.driver)
 		module_put(phydev->bus->dev.driver->owner);
 
