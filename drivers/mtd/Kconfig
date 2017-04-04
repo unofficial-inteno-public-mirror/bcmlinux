@@ -27,6 +27,11 @@ config MTD_SPLIT_FIRMWARE_NAME
 	depends on MTD_SPLIT_FIRMWARE
 	default "firmware"
 
+config MTD_UIMAGE_SPLIT
+	bool "Enable split support for firmware partitions containing a uImage"
+	depends on MTD_SPLIT_FIRMWARE
+	default y
+
 source "drivers/mtd/mtdsplit/Kconfig"
 
 endmenu
