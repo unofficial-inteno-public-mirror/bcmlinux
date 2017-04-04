@@ -1526,3 +1526,6 @@ source "drivers/crypto/Kconfig"
 source crypto/asymmetric_keys/Kconfig
 
 endif	# if CRYPTO
+
+source "crypto/ocf/Kconfig"
+
