@@ -628,6 +628,7 @@ int __init init_rootfs(void)
 	if (err)
 		return err;
 
+#if 0
 	if (IS_ENABLED(CONFIG_TMPFS) && !saved_root_name[0] &&
 		(!root_fs_names || strstr(root_fs_names, "tmpfs"))) {
 		err = shmem_init();
@@ -635,6 +636,9 @@ int __init init_rootfs(void)
 	} else {
 		err = init_ramfs_fs();
 	}
+#else
+	err = init_ramfs_fs();
+#endif
 
 	if (err)
 		unregister_filesystem(&rootfs_fs_type);
